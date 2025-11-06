@@ -1,0 +1,488 @@
+const express = require("express");
+const mongoose = require("mongoose");
+const path = require("path");
+const multer = require("multer");
+const fs = require("fs");
+const xlsx = require("xlsx");
+const axios = require("axios");
+const cors = require("cors");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+const User = require("./models/user");
+const app = express();
+
+// Models
+const Teacher = require("./models/teacher");
+const Subject = require("./models/subject");
+const Room = require("./models/room");
+const Division = require("./models/division");
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, "public")));
+app.use(cors());
+app.set("view engine", "ejs");
+app.set("views", path.join(__dirname, "views"));
+
+// Multer Configuration
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, "uploads/"),
+  filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname),
+});
+const upload = multer({ storage: storage });
+
+if (!fs.existsSync("uploads")) fs.mkdirSync("uploads");
+
+// ==================== FILE UPLOAD ROUTES ====================
+app.get("/", (req, res) => {
+  res.render("index", { message: null });
+});
+
+// FIXED: Updated to handle multiple file upload fields properly
+app.post("/upload", upload.any(), async (req, res) => {
+  try {
+    console.log("Files received:", req.files);
+    
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "No files uploaded" 
+      });
+    }
+
+    // Find files by fieldname
+    const teachersFile = req.files.find(f => f.fieldname === 'teachersFile' || f.originalname.includes('Teacher'));
+    const subjectsFile = req.files.find(f => f.fieldname === 'subjectsFile' || f.originalname.includes('Subject'));
+    const roomsFile = req.files.find(f => f.fieldname === 'roomsFile' || f.originalname.includes('Room'));
+
+    if (!teachersFile || !subjectsFile || !roomsFile) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Missing required files. Please upload Teachers, Subjects, and Rooms files." 
+      });
+    }
+
+    // Parse Teachers
+    const teachersWorkbook = xlsx.readFile(teachersFile.path);
+    const teachersSheet = xlsx.utils.sheet_to_json(
+      teachersWorkbook.Sheets[teachersWorkbook.SheetNames[0]]
+    );
+    const teachersData = teachersSheet.map((row) => ({
+      mis_id: row.mis_id || row.MIS_ID || row['MIS ID'],
+      name: row.name || row.Name || row.NAME,
+      email: row.email || row.Email || row.EMAIL,
+      designation: row.designation || row.Designation || 'Professor',
+      subject_preferences: row.subject_preferences || row.Subject_Preferences ? 
+        (row.subject_preferences || row.Subject_Preferences).toString().split(',').map(s => s.trim()) : [],
+      max_hours: parseInt(row.max_hours || row.Max_Hours || 16),
+      shift: row.shift || row.Shift || 'Morning',
+      preferred_shift: row.preferred_shift || row.Preferred_Shift || 'General'
+    }));
+    
+    console.log("Parsed teachers:", teachersData.length);
+    await Teacher.deleteMany();
+    await Teacher.insertMany(teachersData);
+
+    // Parse Subjects
+    const subjectsWorkbook = xlsx.readFile(subjectsFile.path);
+    const subjectsSheet = xlsx.utils.sheet_to_json(
+      subjectsWorkbook.Sheets[subjectsWorkbook.SheetNames[0]]
+    );
+    const subjectsData = subjectsSheet.map((row) => ({
+      code: row.code || row.Code || row.CODE,
+      name: row.name || row.Name || row.NAME,
+      department: row.department || row.Department || 'CSE',
+      semester: parseInt(row.semester || row.Semester || 3),
+      weekly_load: row.weekly_load || row.Weekly_Load || '3,1',
+      difficulty: row.difficulty || row.Difficulty || 'Medium',
+      requires_lab: Boolean(row.requires_lab || row.Requires_Lab || false),
+      total_hours: parseInt(row.total_hours || row.Total_Hours || 4)
+    }));
+    
+    console.log("Parsed subjects:", subjectsData.length);
+    await Subject.deleteMany();
+    await Subject.insertMany(subjectsData);
+
+    // Parse Rooms
+    const roomsWorkbook = xlsx.readFile(roomsFile.path);
+    const roomsSheet = xlsx.utils.sheet_to_json(
+      roomsWorkbook.Sheets[roomsWorkbook.SheetNames[0]]
+    );
+    const roomsData = roomsSheet.map((row) => ({
+      room_id: row.room_id || row.Room_ID || row.room_no || row.Room_No,
+      room_no: row.room_no || row.Room_No || row.room_id || row.Room_ID,
+      name: row.name || row.Name || row.room_no || row.Room_No,
+      capacity: parseInt(row.capacity || row.Capacity || 30),
+      room_type: row.room_type || row.Room_Type || 'Classroom',
+      equipment: row.equipment || row.Equipment || 'Projector'
+    }));
+    
+    console.log("Parsed rooms:", roomsData.length);
+    await Room.deleteMany();
+    await Room.insertMany(roomsData);
+
+    // Initialize Divisions
+    await Division.deleteMany();
+    const divisionsData = [
+      { name: "Division A", semester: 3, strength: 60 },
+      { name: "Division B", semester: 3, strength: 55 },
+      { name: "Division C", semester: 3, strength: 50 },
+      { name: "Division D", semester: 3, strength: 45 },
+      { name: "Division E", semester: 3, strength: 40 },
+    ];
+    await Division.insertMany(divisionsData);
+
+    // Cleanup uploaded files
+    req.files.forEach(file => {
+      try {
+        fs.unlinkSync(file.path);
+      } catch (err) {
+        console.error("Error deleting file:", err);
+      }
+    });
+
+    res.json({ 
+      success: true, 
+      message: 'Files uploaded and parsed successfully',
+      data: {
+        teachers: teachersData.length,
+        subjects: subjectsData.length,
+        rooms: roomsData.length,
+        divisions: divisionsData.length
+      }
+    });
+  } catch (err) {
+    console.error("Upload error:", err);
+    res.status(500).json({ 
+      success: false, 
+      message: "Error uploading files.", 
+      error: err.message 
+    });
+  }
+});
+
+// ==================== TEACHER ASSIGNMENT ROUTES ====================
+// FIXED: Proper data fetching with error handling
+app.get("/api/teachers", async (req, res) => {
+  try {
+    const teachers = await Teacher.find({}).lean();
+    console.log("Fetched teachers:", teachers.length);
+    res.json({ success: true, data: teachers });
+  } catch (err) {
+    console.error("Error fetching teachers:", err);
+    res.status(500).json({ success: false, message: err.message, data: [] });
+  }
+});
+
+app.get("/api/subjects", async (req, res) => {
+  try {
+    const subjects = await Subject.find({}).lean();
+    console.log("Fetched subjects:", subjects.length);
+    res.json({ success: true, data: subjects });
+  } catch (err) {
+    console.error("Error fetching subjects:", err);
+    res.status(500).json({ success: false, message: err.message, data: [] });
+  }
+});
+
+// FIXED: Save teacher assignments
+app.post("/api/save-assignments", async (req, res) => {
+  try {
+    const { assignments, workloadSummary } = req.body;
+    console.log("Saving assignments:", assignments);
+    
+    // Update subjects with assigned teachers
+    for (const [subjectCode, teacherId] of Object.entries(assignments)) {
+      await Subject.findOneAndUpdate(
+        { code: subjectCode },
+        { assigned_teacher: teacherId },
+        { new: true }
+      );
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Teacher assignments saved successfully' 
+    });
+  } catch (err) {
+    console.error("Save assignments error:", err);
+    res.status(500).json({ 
+      success: false, 
+      message: "Error saving assignments.",
+      error: err.message 
+    });
+  }
+});
+
+// ==================== BATCH MANAGEMENT ROUTES ====================
+// FIXED: Proper batch data structure
+app.get("/api/batches", async (req, res) => {
+  try {
+    const divisions = await Division.find({}).lean();
+    console.log("Fetched divisions:", divisions.length);
+    
+    const batches = {};
+    
+    divisions.forEach(div => {
+      const divLetter = div.name.split(' ')[1];
+      const key = `${divLetter}-${div.semester}`;
+      batches[key] = {
+        name: `CSE-${divLetter} Semester ${div.semester}`,
+        strength: div.strength,
+        division: divLetter,
+        semester: div.semester,
+        subBatches: [
+          { 
+            id: `${divLetter}1`, 
+            name: `Batch ${divLetter}1`, 
+            students: Math.ceil(div.strength / 2) 
+          },
+          { 
+            id: `${divLetter}2`, 
+            name: `Batch ${divLetter}2`, 
+            students: Math.floor(div.strength / 2) 
+          }
+        ]
+      };
+    });
+
+    res.json({ success: true, data: batches });
+  } catch (err) {
+    console.error("Error fetching batches:", err);
+    res.status(500).json({ success: false, message: err.message, data: {} });
+  }
+});
+
+app.get("/api/rooms", async (req, res) => {
+  try {
+    const rooms = await Room.find({}).lean();
+    console.log("Fetched rooms:", rooms.length);
+    res.json({ success: true, data: rooms });
+  } catch (err) {
+    console.error("Error fetching rooms:", err);
+    res.status(500).json({ success: false, message: err.message, data: [] });
+  }
+});
+
+app.post("/api/batch-assignments", async (req, res) => {
+  try {
+    const { batchAssignments } = req.body;
+    console.log("Saving batch assignments:", Object.keys(batchAssignments).length);
+    
+    // You can save this to a BatchAssignment collection if needed
+    // For now, just acknowledge the save
+    
+    res.json({ 
+      success: true, 
+      message: 'Batch assignments saved successfully' 
+    });
+  } catch (err) {
+    console.error("Batch assignment error:", err);
+    res.status(500).json({ 
+      success: false, 
+      message: "Error saving batch assignments.",
+      error: err.message 
+    });
+  }
+});
+
+// ==================== TIMETABLE GENERATION ROUTES ====================
+app.get("/get-timetable", async (req, res) => {
+  try {
+    const teachers = await Teacher.find({}, "name email");
+    const subjects = await Subject.find(
+      {},
+      "name code assignedTeachers"
+    ).populate("assignedTeachers");
+    const rooms = await Room.find({}, "name capacity");
+    const divisions = await Division.find({}, "name");
+
+    const timetableData = {
+      teachers: teachers.map((t) => ({
+        id: t._id.toString(),
+        name: t.name,
+        email: t.email,
+      })),
+      subjects: subjects.map((s) => ({
+        id: s._id.toString(),
+        code: s.code,
+        name: s.name,
+        assignedTeachers: s.assignedTeachers.map((t) => t._id.toString()),
+      })),
+      rooms: rooms.map((r) => ({
+        id: r._id.toString(),
+        name: r.name,
+        capacity: r.capacity,
+      })),
+      divisions: divisions.map((d) => ({ id: d._id.toString(), name: d.name })),
+    };
+
+    try {
+      const response = await axios.post(
+        "http://127.0.0.1:8000/generate-timetable",
+        timetableData
+      );
+      const timetables = response.data;
+      res.render("display-timetable", { timetables });
+    } catch (apiError) {
+      console.error("FastAPI Error:", apiError.message);
+      res.render("display-timetable", {
+        timetables: [],
+        error: "Failed to generate timetable. Please try again.",
+      });
+    }
+  } catch (error) {
+    console.error("Error preparing timetable data:", error.message);
+    res.status(500).send(`Failed to prepare timetable data: ${error.message}`);
+  }
+});
+
+app.post("/api/generate-timetable", async (req, res) => {
+  try {
+    const teachers = await Teacher.find({});
+    const subjects = await Subject.find({}).populate("assigned_teacher");
+    const rooms = await Room.find({});
+    const divisions = await Division.find({});
+
+    const timetableData = {
+      teachers: teachers.map((t) => ({
+        id: t._id.toString(),
+        mis_id: t.mis_id,
+        name: t.name,
+        email: t.email,
+        designation: t.designation,
+        max_hours: t.max_hours,
+        shift: t.shift,
+        preferred_shift: t.preferred_shift
+      })),
+      subjects: subjects.map((s) => ({
+        id: s._id.toString(),
+        code: s.code,
+        name: s.name,
+        department: s.department,
+        semester: s.semester,
+        weekly_load: s.weekly_load,
+        total_hours: s.total_hours,
+        assigned_teacher: s.assigned_teacher ? s.assigned_teacher._id.toString() : null,
+        requires_lab: s.requires_lab
+      })),
+      rooms: rooms.map((r) => ({
+        id: r._id.toString(),
+        room_no: r.room_no,
+        name: r.name,
+        capacity: r.capacity,
+        room_type: r.room_type,
+        equipment: r.equipment
+      })),
+      divisions: divisions.map((d) => ({ 
+        id: d._id.toString(), 
+        name: d.name,
+        semester: d.semester,
+        strength: d.strength
+      })),
+    };
+
+    console.log("Sending to FastAPI:", JSON.stringify(timetableData, null, 2));
+    
+    const response = await axios.post(
+      "http://127.0.0.1:8000/generate-timetable",
+      timetableData
+    );
+    const timetables = response.data;
+
+    console.log("FastAPI Response:", timetables);
+    res.json({ success: true, data: timetables });
+  } catch (error) {
+    console.error("Error generating timetable:", error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: `Failed to generate timetable: ${error.message}` 
+    });
+  }
+});
+
+// ==================== AUTH ROUTES ====================
+app.post("/api/signup", async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password)
+      return res.status(400).json({ message: "All fields required." });
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser)
+      return res.status(409).json({ message: "Email already registered." });
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User({ name, email, password: hashedPassword });
+    await user.save();
+
+    const token = jwt.sign({ userId: user._id }, "SECRET_KEY", {
+      expiresIn: "2h",
+    });
+    res
+      .status(201)
+      .json({ token, user: { name: user.name, email: user.email } });
+  } catch (err) {
+    res.status(500).json({ message: "Signup failed." });
+  }
+});
+
+app.post("/api/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password)
+      return res.status(400).json({ message: "All fields required." });
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(401).json({ message: "Invalid credentials." });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch)
+      return res.status(401).json({ message: "Invalid credentials." });
+
+    const token = jwt.sign({ userId: user._id }, "SECRET_KEY", {
+      expiresIn: "2h",
+    });
+    res.json({ token, user: { name: user.name, email: user.email } });
+  } catch (err) {
+    res.status(500).json({ message: "Login failed." });
+  }
+});
+
+// Auth Middleware
+function authMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader)
+    return res.status(401).json({ message: "No token provided." });
+
+  const token = authHeader.split(" ")[1];
+  jwt.verify(token, "SECRET_KEY", (err, decoded) => {
+    if (err) return res.status(401).json({ message: "Invalid token." });
+    req.userId = decoded.userId;
+    next();
+  });
+}
+
+
+app.post("/generate-timetable", (req, res) => {
+  res
+    .status(404)
+    .send(
+      "Route not found. Did you mean to call the FastAPI endpoint at http://127.0.0.1:8000/generate-timetable?"
+    );
+});
+
+
+mongoose
+  .connect("mongodb://localhost:27017/timetableDB", {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => {
+    console.log("Connected to MongoDB");
+    app.listen(3000, () =>
+      console.log("Server running on http://localhost:3000")
+    );
+  })
+  .catch((err) => console.error("MongoDB connection error:", err));
