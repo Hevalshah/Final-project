@@ -72,6 +72,7 @@ const BatchManagementPage = ({ onBack, onNext }) => {
       }
 
       // Check room type compatibility
+      // Only show conflict if: lab subject assigned to non-lab room OR theory subject assigned to lab room
       if (subject.requires_lab && room.room_type !== 'Lab') {
         setConflicts(prev => [...prev.filter(c => !(c.batch === batchKey && c.subject === subjectCode)), {
           type: 'room_type_mismatch',
@@ -86,7 +87,7 @@ const BatchManagementPage = ({ onBack, onNext }) => {
           batch: batchKey,
           subject: subjectCode,
           room: roomNo,
-          message: `${subject.name} is a theory subject but ${roomNo} is a lab room`
+          message: `${subject.name} is a theory subject but ${roomNo} is a lab room (consider using a lecture hall or classroom instead)`
         }]);
       } else {
         setConflicts(prev => prev.filter(c => !(c.batch === batchKey && c.subject === subjectCode)));
@@ -136,7 +137,10 @@ const BatchManagementPage = ({ onBack, onNext }) => {
             
             const suitableRooms = rooms.filter(room => {
               const isCapacitySufficient = room.capacity >= requiredCapacity;
-              const isTypeMatch = subject.requires_lab ? room.room_type === 'Lab' : room.room_type === 'Classroom';
+              // For lab subjects, match only Lab rooms. For theory subjects, match any non-Lab room
+              const isTypeMatch = subject.requires_lab
+                ? room.room_type === 'Lab'
+                : room.room_type !== 'Lab';
               return isCapacitySufficient && isTypeMatch;
             });
             
@@ -424,13 +428,27 @@ const BatchManagementPage = ({ onBack, onNext }) => {
                                   }`}
                                 >
                                   <option value="">Select Room</option>
-                                  {rooms
-                                    .filter(room => subject.requires_lab ? room.room_type === 'Lab' : room.room_type === 'Classroom')
-                                    .map(room => (
-                                      <option key={room.room_no} value={room.room_no}>
-                                        {room.room_no} ({room.capacity} capacity)
-                                      </option>
-                                    ))}
+                                  {(() => {
+                                    const batch = batches[selectedBatch];
+                                    const requiredCapacity = assignment?.batches === 'combined'
+                                      ? batch.strength
+                                      : Math.max(...batch.subBatches.map(b => b.students));
+
+                                    return rooms
+                                      .filter(room => {
+                                        // For lab subjects, match only Lab rooms. For theory subjects, match any non-Lab room
+                                        const isTypeMatch = subject.requires_lab
+                                          ? room.room_type === 'Lab'
+                                          : room.room_type !== 'Lab';
+                                        const hasCapacity = room.capacity >= requiredCapacity;
+                                        return isTypeMatch && hasCapacity;
+                                      })
+                                      .map(room => (
+                                        <option key={room.room_no} value={room.room_no}>
+                                          {room.room_no} ({room.capacity} capacity) {room.capacity >= requiredCapacity ? '✓' : ''}
+                                        </option>
+                                      ));
+                                  })()}
                                 </select>
                                 {assignedRoom && (
                                   <div className="text-xs text-gray-500 mt-1 flex items-center">

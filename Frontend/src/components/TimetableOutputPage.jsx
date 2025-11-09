@@ -5,6 +5,7 @@ const TimetableOutputPage = ({ onBack }) => {
   const [activeView, setActiveView] = useState('class'); // class, teacher, room
   const [selectedClass, setSelectedClass] = useState('CSE-A-3');
   const [selectedTeacher, setSelectedTeacher] = useState('T1');
+  const [selectedRoom, setSelectedRoom] = useState('101');
   const [timetableData, setTimetableData] = useState({});
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -51,7 +52,46 @@ const TimetableOutputPage = ({ onBack }) => {
                 { time: '3:00-4:00', subject: 'DB Lab', teacher: 'Amit Singh', room: 'LAB-2', type: 'Lab' },
                 { time: '4:00-5:00', subject: 'Software Engineering', teacher: 'Rahul Verma', room: '103', type: 'Theory' }
               ],
-              // Add more days...
+              'Wednesday': [
+                { time: '9:00-10:00', subject: 'Software Engineering', teacher: 'Rahul Verma', room: '103', type: 'Theory' },
+                { time: '10:00-11:00', subject: 'Operating Systems', teacher: 'Rumi Jha', room: '101', type: 'Theory' },
+                { time: '11:00-12:00', subject: 'Break', teacher: '', room: '', type: 'Break' },
+                { time: '12:00-1:00', subject: 'Database Systems', teacher: 'Amit Singh', room: '102', type: 'Theory' },
+                { time: '1:00-2:00', subject: 'Lunch Break', teacher: '', room: '', type: 'Break' },
+                { time: '2:00-3:00', subject: 'Computer Networks', teacher: 'Neha Patel', room: '101', type: 'Theory' },
+                { time: '3:00-4:00', subject: 'OS Lab', teacher: 'Rumi Jha', room: 'LAB-1', type: 'Lab' },
+                { time: '4:00-5:00', subject: 'OS Lab', teacher: 'Rumi Jha', room: 'LAB-1', type: 'Lab' }
+              ],
+              'Thursday': [
+                { time: '9:00-10:00', subject: 'Computer Networks', teacher: 'Neha Patel', room: '101', type: 'Theory' },
+                { time: '10:00-11:00', subject: 'Database Systems', teacher: 'Amit Singh', room: '102', type: 'Theory' },
+                { time: '11:00-12:00', subject: 'Break', teacher: '', room: '', type: 'Break' },
+                { time: '12:00-1:00', subject: 'Software Engineering', teacher: 'Rahul Verma', room: '103', type: 'Theory' },
+                { time: '1:00-2:00', subject: 'Lunch Break', teacher: '', room: '', type: 'Break' },
+                { time: '2:00-3:00', subject: 'DB Lab', teacher: 'Amit Singh', room: 'LAB-2', type: 'Lab' },
+                { time: '3:00-4:00', subject: 'DB Lab', teacher: 'Amit Singh', room: 'LAB-2', type: 'Lab' },
+                { time: '4:00-5:00', subject: 'Operating Systems', teacher: 'Rumi Jha', room: '101', type: 'Theory' }
+              ],
+              'Friday': [
+                { time: '9:00-10:00', subject: 'Database Systems', teacher: 'Amit Singh', room: '102', type: 'Theory' },
+                { time: '10:00-11:00', subject: 'Software Engineering', teacher: 'Rahul Verma', room: '103', type: 'Theory' },
+                { time: '11:00-12:00', subject: 'Break', teacher: '', room: '', type: 'Break' },
+                { time: '12:00-1:00', subject: 'Computer Networks', teacher: 'Neha Patel', room: '101', type: 'Theory' },
+                { time: '1:00-2:00', subject: 'Lunch Break', teacher: '', room: '', type: 'Break' },
+                { time: '2:00-3:00', subject: 'Operating Systems', teacher: 'Rumi Jha', room: '101', type: 'Theory' },
+                { time: '3:00-4:00', subject: 'OS Lab', teacher: 'Rumi Jha', room: 'LAB-1', type: 'Lab' },
+                { time: '4:00-5:00', subject: 'OS Lab', teacher: 'Rumi Jha', room: 'LAB-1', type: 'Lab' }
+              ],
+              'Saturday': [
+                { time: '9:00-10:00', subject: 'Operating Systems', teacher: 'Rumi Jha', room: '101', type: 'Theory' },
+                { time: '10:00-11:00', subject: 'Computer Networks', teacher: 'Neha Patel', room: '101', type: 'Theory' },
+                { time: '11:00-12:00', subject: 'Break', teacher: '', room: '', type: 'Break' },
+                { time: '12:00-1:00', subject: 'Database Systems', teacher: 'Amit Singh', room: '102', type: 'Theory' },
+                { time: '1:00-2:00', subject: 'Lunch Break', teacher: '', room: '', type: 'Break' },
+                { time: '2:00-3:00', subject: 'DB Lab', teacher: 'Amit Singh', room: 'LAB-2', type: 'Lab' },
+                { time: '3:00-4:00', subject: 'DB Lab', teacher: 'Amit Singh', room: 'LAB-2', type: 'Lab' },
+                { time: '4:00-5:00', subject: 'Software Engineering', teacher: 'Rahul Verma', room: '103', type: 'Theory' }
+              ]
             }
           },
           'CSE-B-3': {
@@ -60,7 +100,12 @@ const TimetableOutputPage = ({ onBack }) => {
               'Monday': [
                 { time: '9:00-10:00', subject: 'Computer Networks', teacher: 'Neha Patel', room: '104', type: 'Theory' },
                 { time: '10:00-11:00', subject: 'Operating Systems', teacher: 'Rumi Jha', room: '105', type: 'Theory' },
-                // Add more...
+                { time: '11:00-12:00', subject: 'Break', teacher: '', room: '', type: 'Break' },
+                { time: '12:00-1:00', subject: 'Database Systems', teacher: 'Amit Singh', room: '104', type: 'Theory' },
+                { time: '1:00-2:00', subject: 'Lunch Break', teacher: '', room: '', type: 'Break' },
+                { time: '2:00-3:00', subject: 'Software Engineering', teacher: 'Rahul Verma', room: '105', type: 'Theory' },
+                { time: '3:00-4:00', subject: 'OS Lab', teacher: 'Rumi Jha', room: 'LAB-1', type: 'Lab' },
+                { time: '4:00-5:00', subject: 'OS Lab', teacher: 'Rumi Jha', room: 'LAB-1', type: 'Lab' }
               ]
             }
           }
@@ -194,6 +239,117 @@ const TimetableOutputPage = ({ onBack }) => {
                           </div>
                         ) : (
                           <div className="h-16 bg-gray-50 rounded border-2 border-dashed border-gray-200"></div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const getRoomData = () => {
+    const roomsMap = {};
+
+    // Extract room data from class schedules
+    Object.values(timetableData.classes || {}).forEach(classData => {
+      Object.entries(classData.schedule || {}).forEach(([day, slots]) => {
+        slots.forEach(slot => {
+          if (slot.room && slot.room !== '' && slot.type !== 'Break') {
+            if (!roomsMap[slot.room]) {
+              roomsMap[slot.room] = {
+                name: slot.room,
+                type: slot.type === 'Lab' ? 'Lab' : 'Classroom',
+                schedule: {}
+              };
+            }
+
+            if (!roomsMap[slot.room].schedule[day]) {
+              roomsMap[slot.room].schedule[day] = [];
+            }
+
+            roomsMap[slot.room].schedule[day].push({
+              time: slot.time,
+              subject: slot.subject,
+              teacher: slot.teacher,
+              class: classData.name,
+              type: slot.type
+            });
+          }
+        });
+      });
+    });
+
+    return roomsMap;
+  };
+
+  const renderRoomTimetable = (roomData) => {
+    if (!roomData) return null;
+
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+        <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+          <h3 className="text-xl font-bold text-black">Room {roomData.name}</h3>
+          <p className="text-sm text-gray-600">{roomData.type}</p>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="px-4 py-3 text-left text-sm font-semibold text-black border-r border-gray-200">
+                  Time
+                </th>
+                {days.map(day => (
+                  <th key={day} className="px-4 py-3 text-center text-sm font-semibold text-black border-r border-gray-200 min-w-32">
+                    {day}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {timeSlots.map((timeSlot, index) => (
+                <tr key={timeSlot} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900 border-r border-gray-200 bg-gray-50">
+                    {timeSlot}
+                  </td>
+                  {days.map(day => {
+                    const daySchedule = roomData.schedule[day] || [];
+                    const slot = daySchedule.find(s => s.time === timeSlot);
+
+                    return (
+                      <td key={day} className="px-2 py-2 border-r border-gray-200">
+                        {slot ? (
+                          <div className={`p-2 rounded-lg border text-xs ${getSubjectColor(slot.subject)}`}>
+                            <div className="font-semibold truncate">{slot.subject}</div>
+                            <div className="flex items-center mt-1 opacity-75">
+                              <BookOpen className="w-3 h-3 mr-1" />
+                              <span className="truncate">{slot.class}</span>
+                            </div>
+                            {slot.teacher && (
+                              <div className="flex items-center opacity-75">
+                                <User className="w-3 h-3 mr-1" />
+                                <span className="truncate">{slot.teacher}</span>
+                              </div>
+                            )}
+                            {slot.type && (
+                              <div className="mt-1">
+                                <span className={`text-xs px-1 py-0.5 rounded ${
+                                  slot.type === 'Lab' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                                }`}>
+                                  {slot.type}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="h-16 bg-green-50 rounded border-2 border-dashed border-green-200 flex items-center justify-center">
+                            <span className="text-xs text-green-600 font-medium">Available</span>
+                          </div>
                         )}
                       </td>
                     );
@@ -487,10 +643,35 @@ const TimetableOutputPage = ({ onBack }) => {
         )}
 
         {activeView === 'room' && (
-          <div className="text-center py-16">
-            <MapPin className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-gray-700 mb-2">Room View</h3>
-            <p className="text-gray-500">Room-wise timetable view coming soon...</p>
+          <div>
+            {/* Room Selector */}
+            <div className="mb-6">
+              <div className="flex space-x-4 overflow-x-auto">
+                {Object.keys(getRoomData()).map(roomKey => {
+                  const roomData = getRoomData()[roomKey];
+                  return (
+                    <button
+                      key={roomKey}
+                      onClick={() => setSelectedRoom(roomKey)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap ${
+                        selectedRoom === roomKey
+                          ? 'bg-black text-white'
+                          : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2">
+                        <MapPin className="w-4 h-4" />
+                        <span>Room {roomKey}</span>
+                      </div>
+                      <div className="text-xs opacity-75 mt-1">{roomData.type}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Room Timetable */}
+            {renderRoomTimetable(getRoomData()[selectedRoom])}
           </div>
         )}
 

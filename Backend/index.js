@@ -68,19 +68,27 @@ app.post("/upload", upload.any(), async (req, res) => {
     const teachersSheet = xlsx.utils.sheet_to_json(
       teachersWorkbook.Sheets[teachersWorkbook.SheetNames[0]]
     );
+
+    // Debug: Show what columns are in the file
+    if (teachersSheet.length > 0) {
+      console.log("Teachers file columns found:", Object.keys(teachersSheet[0]));
+    }
+
     const teachersData = teachersSheet.map((row) => ({
-      mis_id: row.mis_id || row.MIS_ID || row['MIS ID'],
-      name: row.name || row.Name || row.NAME,
-      email: row.email || row.Email || row.EMAIL,
-      designation: row.designation || row.Designation || 'Professor',
-      subject_preferences: row.subject_preferences || row.Subject_Preferences ? 
-        (row.subject_preferences || row.Subject_Preferences).toString().split(',').map(s => s.trim()) : [],
-      max_hours: parseInt(row.max_hours || row.Max_Hours || 16),
-      shift: row.shift || row.Shift || 'Morning',
-      preferred_shift: row.preferred_shift || row.Preferred_Shift || 'General'
+      mis_id: row.mis_id || row.MIS_ID || row['MIS ID'] || row['MIS_ID'] || row['Teacher ID'] || row.teacher_id,
+      name: row.name || row.Name || row.NAME || row['Teacher Name'] || row.teacher_name,
+      email: row.email || row.Email || row.EMAIL || row['Email ID'] || row.email_id,
+      designation: row.designation || row.Designation || row.DESIGNATION || row.Rank || row.rank || 'Professor',
+      subject_preferences: row.subject_preferences || row.Subject_Preferences || row['Subject Preferences'] || row.preferences ?
+        (row.subject_preferences || row.Subject_Preferences || row['Subject Preferences'] || row.preferences).toString().split(',').map(s => s.trim()) : [],
+      max_hours: parseInt(row.max_hours || row.Max_Hours || row['Max Hours'] || row['Maximum Hours'] || row.max_load || row.Max_Load || 16),
+      shift: row.shift || row.Shift || row.SHIFT || 'Morning',
+      preferred_shift: row.preferred_shift || row.Preferred_Shift || row['Preferred Shift'] || 'General'
     }));
-    
+
     console.log("Parsed teachers:", teachersData.length);
+    console.log("Sample teacher data:", teachersData[0]);
+
     await Teacher.deleteMany();
     await Teacher.insertMany(teachersData);
 
@@ -89,18 +97,37 @@ app.post("/upload", upload.any(), async (req, res) => {
     const subjectsSheet = xlsx.utils.sheet_to_json(
       subjectsWorkbook.Sheets[subjectsWorkbook.SheetNames[0]]
     );
-    const subjectsData = subjectsSheet.map((row) => ({
-      code: row.code || row.Code || row.CODE,
-      name: row.name || row.Name || row.NAME,
-      department: row.department || row.Department || 'CSE',
-      semester: parseInt(row.semester || row.Semester || 3),
-      weekly_load: row.weekly_load || row.Weekly_Load || '3,1',
-      difficulty: row.difficulty || row.Difficulty || 'Medium',
-      requires_lab: Boolean(row.requires_lab || row.Requires_Lab || false),
-      total_hours: parseInt(row.total_hours || row.Total_Hours || 4)
-    }));
-    
+
+    // Debug: Show what columns are in the file
+    if (subjectsSheet.length > 0) {
+      console.log("Subjects file columns found:", Object.keys(subjectsSheet[0]));
+    }
+
+    const subjectsData = subjectsSheet.map((row) => {
+      // Helper function to properly parse boolean values
+      const parseBoolean = (value) => {
+        if (value === undefined || value === null || value === '') return false;
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'number') return value !== 0;
+        const str = String(value).toLowerCase().trim();
+        return str === 'true' || str === '1' || str === 'yes' || str === 'y';
+      };
+
+      return {
+        code: row.code || row.Code || row.CODE || row['Subject Code'] || row.subject_code,
+        name: row.name || row.Name || row.NAME || row['Subject Name'] || row.subject_name,
+        department: row.department || row.Department || row.DEPARTMENT || row.Dept || row.dept || 'CSE',
+        semester: parseInt(row.semester || row.Semester || row.SEMESTER || row.Sem || row.sem || 3),
+        weekly_load: row.weekly_load || row.Weekly_Load || row['Weekly Load'] || row.load || '3,1',
+        difficulty: row.difficulty || row.Difficulty || row.DIFFICULTY || 'Medium',
+        requires_lab: parseBoolean(row.requires_lab || row.Requires_Lab || row['Requires Lab'] || row.lab || row.Lab),
+        total_hours: parseInt(row.total_hours || row.Total_Hours || row['Total Hours'] || row.hours || row.Hours || 4)
+      };
+    });
+
     console.log("Parsed subjects:", subjectsData.length);
+    console.log("Sample subject data:", subjectsData[0]);
+
     await Subject.deleteMany();
     await Subject.insertMany(subjectsData);
 
@@ -109,16 +136,24 @@ app.post("/upload", upload.any(), async (req, res) => {
     const roomsSheet = xlsx.utils.sheet_to_json(
       roomsWorkbook.Sheets[roomsWorkbook.SheetNames[0]]
     );
+
+    // Debug: Show what columns are in the file
+    if (roomsSheet.length > 0) {
+      console.log("Rooms file columns found:", Object.keys(roomsSheet[0]));
+    }
+
     const roomsData = roomsSheet.map((row) => ({
-      room_id: row.room_id || row.Room_ID || row.room_no || row.Room_No,
-      room_no: row.room_no || row.Room_No || row.room_id || row.Room_ID,
-      name: row.name || row.Name || row.room_no || row.Room_No,
-      capacity: parseInt(row.capacity || row.Capacity || 30),
-      room_type: row.room_type || row.Room_Type || 'Classroom',
-      equipment: row.equipment || row.Equipment || 'Projector'
+      room_id: row.room_id || row.Room_ID || row['Room ID'] || row.room_no || row.Room_No || row['Room No'],
+      room_no: row.room_no || row.Room_No || row['Room No'] || row.room_id || row.Room_ID || row['Room ID'],
+      name: row.name || row.Name || row.NAME || row['Room Name'] || row.room_no || row.Room_No,
+      capacity: parseInt(row.capacity || row.Capacity || row.CAPACITY || row.Seats || row.seats || 30),
+      room_type: row.room_type || row.Room_Type || row['Room Type'] || row.Type || row.type || 'Classroom',
+      equipment: row.equipment || row.Equipment || row.EQUIPMENT || row.Facilities || row.facilities || 'Projector'
     }));
-    
+
     console.log("Parsed rooms:", roomsData.length);
+    console.log("Sample room data:", roomsData[0]);
+
     await Room.deleteMany();
     await Room.insertMany(roomsData);
 

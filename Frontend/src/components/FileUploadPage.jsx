@@ -164,17 +164,43 @@ const FileUploadPage = ({ onBack, onFilesUploaded }) => {
     }, 500);
   };
 
-  const processFiles = () => {
+  const processFiles = async () => {
     const filesToProcess = Object.values(uploadedFiles).filter(Boolean);
     if (filesToProcess.length === 4) {
       setProcessing(true);
-      setTimeout(() => {
-        setProcessing(false);
-        // Call the callback to move to next step
-        if (onFilesUploaded) {
-          onFilesUploaded(uploadedFiles);
+
+      try {
+        // Create FormData and append files
+        const formData = new FormData();
+        formData.append('teachersFile', uploadedFiles[0]);
+        formData.append('subjectsFile', uploadedFiles[1]);
+        formData.append('roomsFile', uploadedFiles[2]);
+        // Note: Fixed Slots (uploadedFiles[3]) is not currently used by backend
+
+        // Send files to backend
+        const response = await fetch('http://localhost:3000/upload', {
+          method: 'POST',
+          body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          alert(`Files uploaded successfully!\nTeachers: ${result.data.teachers}\nSubjects: ${result.data.subjects}\nRooms: ${result.data.rooms}`);
+
+          // Call the callback to move to next step
+          if (onFilesUploaded) {
+            onFilesUploaded(uploadedFiles);
+          }
+        } else {
+          alert('Upload failed: ' + result.message);
         }
-      }, 2000);
+      } catch (error) {
+        console.error('Error uploading files:', error);
+        alert('Failed to upload files. Please make sure the backend server is running.');
+      } finally {
+        setProcessing(false);
+      }
     } else {
       alert('Please upload all 4 required files before processing.');
     }

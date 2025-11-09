@@ -3,7 +3,13 @@ const mongoose = require('mongoose');
 const subjectSchema = new mongoose.Schema({
     code: { type: String, required: true },
     name: { type: String, required: true },
-    assignedTeachers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Teacher', default: [] }]
+    department: { type: String, default: 'CSE' },
+    semester: { type: Number, default: 3 },
+    weekly_load: { type: String, default: '3,1' },
+    difficulty: { type: String, default: 'Medium' },
+    requires_lab: { type: Boolean, default: false },
+    total_hours: { type: Number, default: 4 },
+    assigned_teacher: { type: String, default: null }
 });
 
 module.exports = mongoose.model('Subject', subjectSchema);
