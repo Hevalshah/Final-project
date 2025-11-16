@@ -229,7 +229,7 @@ const RecordList = ({ appState, onViewTimetable }) => {
             </div>
           </div>
         </div>
-      )))}
+      ))}
         </div>
       </div>
 
