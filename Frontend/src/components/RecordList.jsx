@@ -81,7 +81,7 @@ const getSubjectColor = (subject) => {
   return colors[subject] || 'bg-gray-100 text-gray-800 border-gray-200';
 };
 
-const RecordList = () => {
+const RecordList = ({ appState, onViewTimetable }) => {
   const [selectedPlan, setSelectedPlan] = useState(null);
 
   const onboardingPlans = [
@@ -120,8 +120,72 @@ const RecordList = () => {
   ];
 
   return (
-    <div className="space-y-4">
-      {onboardingPlans.map((plan) => (
+    <div className="space-y-6">
+      {/* Generated Timetable Section - Show if timetable exists */}
+      {appState?.generatedTimetable && (
+        <div className="bg-gradient-to-r from-green-50 via-emerald-50 to-teal-50 rounded-2xl p-6 border-2 border-green-300 shadow-lg">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-12 h-12 bg-green-600 rounded-xl flex items-center justify-center">
+                <Calendar className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Generated Timetables Available!</h3>
+                <p className="text-gray-600 text-sm">
+                  Generated on {new Date(appState.generatedTimetable.timestamp).toLocaleDateString()} at{' '}
+                  {new Date(appState.generatedTimetable.timestamp).toLocaleTimeString()}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onViewTimetable}
+              className="bg-green-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-green-700 transition-all shadow-lg hover:shadow-xl hover:scale-105"
+            >
+              View Full Timetables
+            </button>
+          </div>
+
+          {/* Statistics */}
+          <div className="grid grid-cols-5 gap-4 mt-4">
+            <div className="bg-white rounded-lg p-3 text-center border border-green-200">
+              <div className="text-2xl font-bold text-green-600">
+                {appState.generatedTimetable.statistics?.totalClasses || 0}
+              </div>
+              <div className="text-xs text-gray-600 mt-1">Classes</div>
+            </div>
+            <div className="bg-white rounded-lg p-3 text-center border border-green-200">
+              <div className="text-2xl font-bold text-blue-600">
+                {appState.generatedTimetable.statistics?.totalSubjects || 0}
+              </div>
+              <div className="text-xs text-gray-600 mt-1">Subjects</div>
+            </div>
+            <div className="bg-white rounded-lg p-3 text-center border border-green-200">
+              <div className="text-2xl font-bold text-purple-600">
+                {appState.generatedTimetable.statistics?.totalTeachers || 0}
+              </div>
+              <div className="text-xs text-gray-600 mt-1">Teachers</div>
+            </div>
+            <div className="bg-white rounded-lg p-3 text-center border border-green-200">
+              <div className="text-2xl font-bold text-orange-600">
+                {appState.generatedTimetable.statistics?.totalHours || 0}h
+              </div>
+              <div className="text-xs text-gray-600 mt-1">Total Hours</div>
+            </div>
+            <div className="bg-white rounded-lg p-3 text-center border border-green-200">
+              <div className="text-2xl font-bold text-indigo-600">
+                {appState.generatedTimetable.statistics?.utilizationRate || 0}%
+              </div>
+              <div className="text-xs text-gray-600 mt-1">Utilization</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sample/Demo Timetables */}
+      <div>
+        <h3 className="text-lg font-semibold text-gray-700 mb-3">Sample Timetables</h3>
+        <div className="space-y-4">
+          {onboardingPlans.map((plan) => (
         <div
           key={plan.id}
           className="bg-white rounded-xl p-6 border-2 border-gray-200 hover:border-blue-400 cursor-pointer transition-colors duration-200 shadow-sm"
@@ -165,7 +229,9 @@ const RecordList = () => {
             </div>
           </div>
         </div>
-      ))}
+      )))}
+        </div>
+      </div>
 
       {/* Modal for timetable preview */}
       {selectedPlan && (

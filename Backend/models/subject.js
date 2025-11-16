@@ -6,10 +6,14 @@ const subjectSchema = new mongoose.Schema({
     department: { type: String, default: 'CSE' },
     semester: { type: Number, default: 3 },
     weekly_load: { type: String, default: '3,1' },
-    difficulty: { type: String, default: 'Medium' },
     requires_lab: { type: Boolean, default: false },
     total_hours: { type: Number, default: 4 },
-    assigned_teacher: { type: String, default: null }
+    assigned_teacher: { type: String, default: null }, // Legacy field for backward compatibility
+    assigned_teachers: [{
+        teacherId: { type: String, required: true },
+        hours: { type: Number, required: true },
+        isPriority: { type: Boolean, default: false }
+    }]
 });
 
 module.exports = mongoose.model('Subject', subjectSchema);

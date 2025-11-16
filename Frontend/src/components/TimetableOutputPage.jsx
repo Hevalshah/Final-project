@@ -24,14 +24,117 @@ const TimetableOutputPage = ({ onBack }) => {
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-  // Sample generated timetable data
+  // Fetch real timetable data from backend
   useEffect(() => {
-    setTimeout(() => {
-      const sampleTimetable = {
-        classes: {
-          'CSE-A-3': {
-            name: 'CSE-A Semester 3',
-            schedule: {
+    const fetchTimetable = async () => {
+      try {
+        console.log('Fetching timetable from backend...');
+        const response = await fetch('http://localhost:3000/api/generate-timetable', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        console.log('Response status:', response.status);
+        const result = await response.json();
+        console.log('API Response:', result);
+
+        if (result.success && result.data) {
+          console.log('Timetable data received:', result.data);
+
+          // Check if we actually have data
+          if (Array.isArray(result.data) && result.data.length > 0) {
+            // Transform backend data to frontend format
+            const transformedData = transformBackendData(result.data);
+            console.log('Transformed data:', transformedData);
+            setTimetableData(transformedData);
+
+            // Set first class as selected if available
+            if (transformedData.classes && Object.keys(transformedData.classes).length > 0) {
+              setSelectedClass(Object.keys(transformedData.classes)[0]);
+            }
+          } else {
+            console.warn('No timetable data in response, using sample data');
+            loadSampleData();
+          }
+        } else {
+          console.error('Failed to generate timetable:', result.message || 'No success flag');
+          console.log('Using sample data as fallback');
+          loadSampleData();
+        }
+      } catch (error) {
+        console.error('Error generating timetable:', error);
+        console.log('Using sample data due to error');
+        loadSampleData();
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTimetable();
+  }, []);
+
+  // Transform backend API response to frontend-expected format
+  const transformBackendData = (apiData) => {
+    const classes = {};
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+    // If apiData is an array of division timetables
+    if (Array.isArray(apiData)) {
+      apiData.forEach(divisionData => {
+        const divisionKey = divisionData.division.replace(/\s+/g, '-');
+        const schedule = {};
+
+        days.forEach(day => {
+          const daySlots = [];
+          const daySchedule = divisionData.schedule[day] || {};
+
+          // Convert time-keyed object to array format
+          Object.entries(daySchedule).forEach(([timeSlot, slotData]) => {
+            daySlots.push({
+              time: timeSlot,
+              subject: slotData.subject || '',
+              teacher: slotData.teacher || '',
+              room: slotData.room || '',
+              type: slotData.subject && slotData.subject.includes('Lab') ? 'Lab' : 'Theory'
+            });
+          });
+
+          // Sort by time
+          daySlots.sort((a, b) => {
+            const timeA = parseInt(a.time.split(':')[0]);
+            const timeB = parseInt(b.time.split(':')[0]);
+            return timeA - timeB;
+          });
+
+          schedule[day] = daySlots;
+        });
+
+        classes[divisionKey] = {
+          name: divisionData.division,
+          schedule: schedule
+        };
+      });
+    }
+
+    return {
+      classes: classes,
+      teachers: {},
+      summary: {
+        totalSubjects: 6,
+        totalTeachers: 4,
+        totalClasses: Object.keys(classes).length,
+        totalHours: 42,
+        utilizationRate: 85
+      }
+    };
+  };
+
+  const loadSampleData = () => {
+    const sampleTimetable = {
+      classes: {
+        'CSE-A-3': {
+          name: 'CSE-A Semester 3',
+          schedule: {
               'Monday': [
                 { time: '9:00-10:00', subject: 'Operating Systems', teacher: 'Rumi Jha', room: '101', type: 'Theory' },
                 { time: '10:00-11:00', subject: 'Database Systems', teacher: 'Amit Singh', room: '102', type: 'Theory' },
@@ -143,11 +246,9 @@ const TimetableOutputPage = ({ onBack }) => {
           utilizationRate: 85
         }
       };
-      
+
       setTimetableData(sampleTimetable);
-      setLoading(false);
-    }, 2000);
-  }, []);
+    };
 
   const getSubjectColor = (subject) => {
     const colors = {

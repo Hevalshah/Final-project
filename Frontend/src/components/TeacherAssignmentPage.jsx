@@ -10,11 +10,20 @@ const TeacherAssignmentPage = ({ onBack, onNext }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const progressPercent = useMemo(() => subjects.length > 0 ? (Object.keys(assignments).length / subjects.length) * 100 : 0, [assignments, subjects]);
+  const progressPercent = useMemo(() => {
+    if (subjects.length === 0) return 0;
+    const assignedCount = subjects.filter(subject => {
+      const subjectAssignments = assignments[subject.code] || [];
+      return subjectAssignments.length > 0; // Subject is assigned if at least one teacher has it
+    }).length;
+    return (assignedCount / subjects.length) * 100;
+  }, [assignments, subjects]);
 
   const saveAssignments = async () => {
     setSaving(true);
     try {
+      // Save assignments with priority flags
+      // Priority teachers (isPriority: true) will be assigned to higher/top classes first
       const response = await fetch('http://localhost:3000/api/save-assignments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -87,69 +96,111 @@ const TeacherAssignmentPage = ({ onBack, onNext }) => {
     fetchData();
   }, []);
 
-  const assignSubjectToTeacher = (subjectCode, teacherId) => {
+  const assignSubjectToTeacher = (subjectCode, teacherId, hoursToAssign = null) => {
     const subject = subjects.find(s => s.code === subjectCode);
     const teacher = teachers.find(t => t.mis_id === teacherId);
-    
+
     if (!subject || !teacher) return;
 
-    // Check capacity
+    const MAX_HOURS_PER_SUBJECT = 4;
     const currentWorkload = workloadSummary[teacherId];
-    if (currentWorkload.assigned + subject.total_hours > teacher.max_hours) {
+    const currentAssignments = assignments[subjectCode] || [];
+
+    // Check if this teacher already has this subject
+    const alreadyAssignedToThisTeacher = currentAssignments.some(a => a.teacherId === teacherId);
+    if (alreadyAssignedToThisTeacher) {
       setWarnings(prev => [...prev, {
-        type: 'overload',
-        message: `${teacher.name} would exceed maximum hours (${teacher.max_hours}h/week)`
+        type: 'info',
+        message: `${teacher.name} is already assigned to ${subject.code}`
       }]);
       return;
     }
 
-    // Remove previous assignment if exists
-    if (assignments[subjectCode]) {
-      const prevTeacherId = assignments[subjectCode];
-      const prevSubject = subjects.find(s => s.code === subjectCode);
-      setWorkloadSummary(prev => ({
-        ...prev,
-        [prevTeacherId]: {
-          ...prev[prevTeacherId],
-          assigned: prev[prevTeacherId].assigned - prevSubject.total_hours,
-          remaining: prev[prevTeacherId].remaining + prevSubject.total_hours,
-          subjects: prev[prevTeacherId].subjects.filter(s => s !== subjectCode)
-        }
-      }));
+    // Calculate hours to assign to this teacher (max 4h per teacher per subject)
+    if (!hoursToAssign) {
+      hoursToAssign = Math.min(subject.total_hours, MAX_HOURS_PER_SUBJECT);
     }
 
-    // Make new assignment
-    setAssignments(prev => ({
-      ...prev,
-      [subjectCode]: teacherId
-    }));
+    // Check if teacher has capacity
+    if (hoursToAssign > currentWorkload.remaining) {
+      setWarnings(prev => [...prev, {
+        type: 'overload',
+        message: `${teacher.name} has only ${currentWorkload.remaining}h available (needs ${hoursToAssign}h for ${subject.code})`
+      }]);
+      return;
+    }
+
+    // Update assignments
+    setAssignments(prev => {
+      const updated = { ...prev };
+      if (!updated[subjectCode]) {
+        updated[subjectCode] = [];
+      }
+      updated[subjectCode] = [...updated[subjectCode], { teacherId, hours: hoursToAssign, isPriority: false }];
+      return updated;
+    });
 
     // Update workload
     setWorkloadSummary(prev => ({
       ...prev,
       [teacherId]: {
         ...prev[teacherId],
-        assigned: prev[teacherId].assigned + subject.total_hours,
-        remaining: prev[teacherId].remaining - subject.total_hours,
-        subjects: [...prev[teacherId].subjects, subjectCode]
+        assigned: prev[teacherId].assigned + hoursToAssign,
+        remaining: prev[teacherId].remaining - hoursToAssign,
+        subjects: [
+          ...prev[teacherId].subjects.filter(s => s.code !== subjectCode),
+          { code: subjectCode, hours: hoursToAssign }
+        ]
       }
     }));
 
     // Update subject assignment
-    setSubjects(prev => prev.map(s => 
-      s.code === subjectCode 
-        ? { ...s, assigned_teacher: teacherId }
+    setSubjects(prev => prev.map(s =>
+      s.code === subjectCode
+        ? {
+            ...s,
+            assigned_teachers: [...(s.assigned_teachers || []), { teacherId, hours: hoursToAssign, isPriority: false }]
+          }
         : s
     ));
   };
 
+  const togglePriority = (subjectCode, teacherId) => {
+    setAssignments(prev => {
+      const updated = { ...prev };
+      if (updated[subjectCode]) {
+        updated[subjectCode] = updated[subjectCode].map(assignment =>
+          assignment.teacherId === teacherId
+            ? { ...assignment, isPriority: !assignment.isPriority }
+            : assignment
+        );
+      }
+      return updated;
+    });
+
+    setSubjects(prev => prev.map(subject => {
+      if (subject.code === subjectCode && subject.assigned_teachers) {
+        return {
+          ...subject,
+          assigned_teachers: subject.assigned_teachers.map(assignment =>
+            assignment.teacherId === teacherId
+              ? { ...assignment, isPriority: !assignment.isPriority }
+              : assignment
+          )
+        };
+      }
+      return subject;
+    }));
+  };
+
   const autoAssign = () => {
     setLoading(true);
-    
+
     setTimeout(() => {
       const newAssignments = {};
       const newWorkload = { ...workloadSummary };
-      
+      const MAX_HOURS_PER_SUBJECT = 4; // Maximum hours per teacher per subject
+
       // Reset all assignments
       Object.keys(newWorkload).forEach(teacherId => {
         newWorkload[teacherId] = {
@@ -159,48 +210,70 @@ const TeacherAssignmentPage = ({ onBack, onNext }) => {
         };
       });
 
-      // Sort subjects by total hours (descending)
-      const sortedSubjects = [...subjects].sort((a, b) => b.total_hours - a.total_hours);
+      // Process each subject
+      subjects.forEach(subject => {
+        newAssignments[subject.code] = []; // Array of { teacherId, hours }
 
-      // Assign based on preferences and availability
-      sortedSubjects.forEach(subject => {
-        const preferredTeachers = teachers.filter(teacher => 
+        // Calculate hours to assign to EACH teacher (max 4h/week per teacher per subject)
+        // Note: subject.total_hours is preserved; this limit is PER TEACHER only
+        const hoursPerTeacher = Math.min(subject.total_hours, MAX_HOURS_PER_SUBJECT);
+
+        // First: Assign to all teachers who prefer this subject
+        const preferredTeachers = teachers.filter(teacher =>
           teacher.subject_preferences && teacher.subject_preferences.includes(subject.code)
-        );
+        ).sort((a, b) => newWorkload[b.mis_id].remaining - newWorkload[a.mis_id].remaining); // Sort by most available first
 
         for (const teacher of preferredTeachers) {
-          if (newWorkload[teacher.mis_id].assigned + subject.total_hours <= teacher.max_hours) {
-            newAssignments[subject.code] = teacher.mis_id;
-            newWorkload[teacher.mis_id].assigned += subject.total_hours;
-            newWorkload[teacher.mis_id].remaining -= subject.total_hours;
-            newWorkload[teacher.mis_id].subjects.push(subject.code);
-            break;
+          const availableCapacity = newWorkload[teacher.mis_id].remaining;
+
+          // Check if teacher has capacity
+          if (availableCapacity >= hoursPerTeacher) {
+            newAssignments[subject.code].push({
+              teacherId: teacher.mis_id,
+              hours: hoursPerTeacher,
+              isPriority: false
+            });
+            newWorkload[teacher.mis_id].assigned += hoursPerTeacher;
+            newWorkload[teacher.mis_id].remaining -= hoursPerTeacher;
+            newWorkload[teacher.mis_id].subjects.push({
+              code: subject.code,
+              hours: hoursPerTeacher
+            });
           }
         }
 
-        // If not assigned, assign to any available teacher
-        if (!newAssignments[subject.code]) {
-          for (const teacher of teachers) {
-            if (newWorkload[teacher.mis_id].assigned + subject.total_hours <= teacher.max_hours) {
-              newAssignments[subject.code] = teacher.mis_id;
-              newWorkload[teacher.mis_id].assigned += subject.total_hours;
-              newWorkload[teacher.mis_id].remaining -= subject.total_hours;
-              newWorkload[teacher.mis_id].subjects.push(subject.code);
-              break;
-            }
+        // If no preferred teachers were assigned, assign to any available teacher
+        if (newAssignments[subject.code].length === 0) {
+          const availableTeachers = teachers
+            .filter(t => newWorkload[t.mis_id].remaining >= hoursPerTeacher)
+            .sort((a, b) => newWorkload[b.mis_id].remaining - newWorkload[a.mis_id].remaining);
+
+          if (availableTeachers.length > 0) {
+            const teacher = availableTeachers[0]; // Assign to the teacher with most availability
+            newAssignments[subject.code].push({
+              teacherId: teacher.mis_id,
+              hours: hoursPerTeacher,
+              isPriority: false
+            });
+            newWorkload[teacher.mis_id].assigned += hoursPerTeacher;
+            newWorkload[teacher.mis_id].remaining -= hoursPerTeacher;
+            newWorkload[teacher.mis_id].subjects.push({
+              code: subject.code,
+              hours: hoursPerTeacher
+            });
           }
         }
       });
 
       setAssignments(newAssignments);
       setWorkloadSummary(newWorkload);
-      
-      // Update subjects
+
+      // Update subjects with assignment info
       setSubjects(prev => prev.map(subject => ({
         ...subject,
-        assigned_teacher: newAssignments[subject.code] || null
+        assigned_teachers: newAssignments[subject.code] || []
       })));
-      
+
       setLoading(false);
     }, 2000);
   };
@@ -219,11 +292,14 @@ const TeacherAssignmentPage = ({ onBack, onNext }) => {
       });
       return reset;
     });
-    setSubjects(prev => prev.map(s => ({ ...s, assigned_teacher: null })));
+    setSubjects(prev => prev.map(s => ({ ...s, assigned_teachers: [] })));
     setWarnings([]);
   };
 
-  const assignedCount = Object.keys(assignments).length;
+  const assignedCount = subjects.filter(subject => {
+    const subjectAssignments = assignments[subject.code] || [];
+    return subjectAssignments.length > 0; // Subject is assigned if at least one teacher has it
+  }).length;
   const totalSubjects = subjects.length;
   const warningCount = warnings.length;
 
@@ -380,10 +456,11 @@ const TeacherAssignmentPage = ({ onBack, onNext }) => {
                   </div>
                 ) : (
                   subjects.map(subject => {
-                    const isAssigned = !!assignments[subject.code];
-                    const assignedTeacher = isAssigned ? 
-                      teachers.find(t => t.mis_id === assignments[subject.code]) : null;
-                    
+                    const subjectAssignments = assignments[subject.code] || [];
+                    const isAssigned = subjectAssignments.length > 0;
+                    const hasMultipleTeachers = subjectAssignments.length > 1;
+                    const priorityCount = subjectAssignments.filter(a => a.isPriority).length;
+
                     return (
                       <div
                         key={subject.code}
@@ -402,6 +479,17 @@ const TeacherAssignmentPage = ({ onBack, onNext }) => {
                                   Lab
                                 </span>
                               )}
+                              {hasMultipleTeachers && (
+                                <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
+                                  {subjectAssignments.length} Teachers
+                                </span>
+                              )}
+                              {priorityCount > 0 && (
+                                <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs font-medium rounded-full flex items-center space-x-1">
+                                  <Star className="w-3 h-3 fill-current" />
+                                  <span>{priorityCount} Priority</span>
+                                </span>
+                              )}
                             </div>
                             <p className="text-sm text-gray-600">{subject.code}</p>
                             <div className="flex items-center space-x-3 mt-2 text-xs text-gray-500">
@@ -416,12 +504,44 @@ const TeacherAssignmentPage = ({ onBack, onNext }) => {
                             <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
                           )}
                         </div>
-                        
-                        {isAssigned && assignedTeacher && (
+
+                        {subjectAssignments.length > 0 && (
                           <div className="mt-3 pt-3 border-t border-green-200">
-                            <div className="flex items-center space-x-2 text-sm text-green-900">
-                              <User className="w-4 h-4" />
-                              <span className="font-medium">{assignedTeacher.name}</span>
+                            <div className="space-y-1.5">
+                              {subjectAssignments
+                                .sort((a, b) => (b.isPriority ? 1 : 0) - (a.isPriority ? 1 : 0))
+                                .map((assignment, idx) => {
+                                  const teacher = teachers.find(t => t.mis_id === assignment.teacherId);
+                                  const isPreferred = teacher?.subject_preferences?.includes(subject.code);
+                                  return teacher && (
+                                    <div key={idx} className={`flex items-center justify-between text-sm p-2 rounded-lg transition-all ${
+                                      assignment.isPriority ? 'bg-yellow-50 border border-yellow-300 text-yellow-900' : 'text-green-900'
+                                    }`}>
+                                      <div className="flex items-center space-x-2 flex-1">
+                                        <User className="w-4 h-4" />
+                                        <span className="font-medium">{teacher.name}</span>
+                                        {isPreferred && (
+                                          <span className="text-xs text-blue-600" title="Preferred Subject">✓</span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center space-x-2">
+                                        <span className="text-xs font-semibold">{assignment.hours}h</span>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            togglePriority(subject.code, assignment.teacherId);
+                                          }}
+                                          className={`p-1 rounded hover:bg-yellow-100 transition-all ${
+                                            assignment.isPriority ? 'text-yellow-600' : 'text-gray-400 hover:text-yellow-600'
+                                          }`}
+                                          title={assignment.isPriority ? 'Remove Priority' : 'Set as Priority'}
+                                        >
+                                          <Star className={`w-4 h-4 ${assignment.isPriority ? 'fill-current' : ''}`} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                             </div>
                           </div>
                         )}
@@ -541,10 +661,10 @@ const TeacherAssignmentPage = ({ onBack, onNext }) => {
                           </h4>
                           {workload.subjects.length > 0 ? (
                             <div className="space-y-2">
-                              {workload.subjects.map(subjectCode => {
-                                const subject = subjects.find(s => s.code === subjectCode);
+                              {workload.subjects.map(subjectItem => {
+                                const subject = subjects.find(s => s.code === subjectItem.code);
                                 return subject && (
-                                  <div key={subjectCode} className="flex items-center justify-between bg-white rounded-lg px-4 py-3 border border-gray-200 hover:border-gray-300 transition-all">
+                                  <div key={subjectItem.code} className="flex items-center justify-between bg-white rounded-lg px-4 py-3 border border-gray-200 hover:border-gray-300 transition-all">
                                     <div className="flex items-center space-x-3 flex-1">
                                       <BookOpen className="w-4 h-4 text-gray-600 flex-shrink-0" />
                                       <div className="flex-1 min-w-0">
@@ -553,26 +673,42 @@ const TeacherAssignmentPage = ({ onBack, onNext }) => {
                                       </div>
                                     </div>
                                     <div className="flex items-center space-x-3">
-                                      <span className="text-sm font-semibold text-gray-600">{subject.total_hours}h</span>
+                                      <span className="text-sm font-semibold text-gray-600">{subjectItem.hours}h</span>
                                       <button
                                         onClick={() => {
-                                          const updatedAssignments = { ...assignments };
-                                          delete updatedAssignments[subjectCode];
-                                          setAssignments(updatedAssignments);
-                                          
+                                          // Remove this specific assignment
+                                          setAssignments(prev => {
+                                            const updated = { ...prev };
+                                            if (updated[subjectItem.code]) {
+                                              updated[subjectItem.code] = updated[subjectItem.code].filter(
+                                                a => a.teacherId !== teacher.mis_id
+                                              );
+                                              if (updated[subjectItem.code].length === 0) {
+                                                delete updated[subjectItem.code];
+                                              }
+                                            }
+                                            return updated;
+                                          });
+
                                           setWorkloadSummary(prev => ({
                                             ...prev,
                                             [teacher.mis_id]: {
                                               ...prev[teacher.mis_id],
-                                              assigned: prev[teacher.mis_id].assigned - subject.total_hours,
-                                              remaining: prev[teacher.mis_id].remaining + subject.total_hours,
-                                              subjects: prev[teacher.mis_id].subjects.filter(s => s !== subjectCode)
+                                              assigned: prev[teacher.mis_id].assigned - subjectItem.hours,
+                                              remaining: prev[teacher.mis_id].remaining + subjectItem.hours,
+                                              subjects: prev[teacher.mis_id].subjects.filter(s => s.code !== subjectItem.code)
                                             }
                                           }));
-                                          
-                                          setSubjects(prev => prev.map(s => 
-                                            s.code === subjectCode ? { ...s, assigned_teacher: null } : s
-                                          ));
+
+                                          setSubjects(prev => prev.map(s => {
+                                            if (s.code === subjectItem.code) {
+                                              const updatedTeachers = (s.assigned_teachers || []).filter(
+                                                a => a.teacherId !== teacher.mis_id
+                                              );
+                                              return { ...s, assigned_teachers: updatedTeachers };
+                                            }
+                                            return s;
+                                          }));
                                         }}
                                         className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded transition-all"
                                       >
@@ -605,19 +741,23 @@ const TeacherAssignmentPage = ({ onBack, onNext }) => {
                             className="w-full px-4 py-2.5 border-2 border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm font-medium text-gray-700 hover:border-gray-400 transition-all cursor-pointer"
                           >
                             <option value="">+ Assign a Subject</option>
-                            {subjects.filter(s => !assignments[s.code]).map(subject => {
-                              const canAssign = workload.remaining >= subject.total_hours;
+                            {subjects.map(subject => {
+                              const currentAssignments = assignments[subject.code] || [];
+                              const hoursPerTeacher = Math.min(subject.total_hours, 4);
+                              const canAssign = workload.remaining >= hoursPerTeacher;
                               const isPreferred = teacher.subject_preferences && teacher.subject_preferences.includes(subject.code);
-                              
+                              const alreadyAssignedToThisTeacher = currentAssignments.some(a => a.teacherId === teacher.mis_id);
+
                               return (
-                                <option 
-                                  key={subject.code} 
+                                <option
+                                  key={subject.code}
                                   value={subject.code}
-                                  disabled={!canAssign}
+                                  disabled={!canAssign || alreadyAssignedToThisTeacher}
                                 >
-                                  {subject.name} ({subject.total_hours}h)
+                                  {subject.name} - {subject.total_hours}h total ({hoursPerTeacher}h per teacher)
                                   {isPreferred && ' ⭐'}
-                                  {!canAssign && ' - Insufficient capacity'}
+                                  {alreadyAssignedToThisTeacher && ' - Already assigned'}
+                                  {!canAssign && !alreadyAssignedToThisTeacher && ' - Insufficient capacity'}
                                 </option>
                               );
                             })}

@@ -38,7 +38,7 @@ function App() {
   const handleBatchManagementComplete = (batchAssignments) => {
     setAppState(prev => ({ ...prev, batchAssignments }));
 
-    // Generate timetable automatically and go to output page immediately
+    // Generate timetable automatically and show timetable output
     generateTimetable(batchAssignments);
     setCurrentPage("timetable-output");
   };
@@ -217,7 +217,10 @@ function App() {
                 appState={appState}
                 onReset={handleReset}
               />
-              <RecordList appState={appState} />
+              <RecordList
+                appState={appState}
+                onViewTimetable={() => handleSidebarNavigation("timetable-output")}
+              />
             </div>
           </main>
         </div>

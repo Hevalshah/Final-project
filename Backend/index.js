@@ -225,27 +225,51 @@ app.get("/api/subjects", async (req, res) => {
 app.post("/api/save-assignments", async (req, res) => {
   try {
     const { assignments, workloadSummary } = req.body;
-    console.log("Saving assignments:", assignments);
-    
-    // Update subjects with assigned teachers
-    for (const [subjectCode, teacherId] of Object.entries(assignments)) {
-      await Subject.findOneAndUpdate(
-        { code: subjectCode },
-        { assigned_teacher: teacherId },
-        { new: true }
-      );
+    console.log("Saving assignments:", JSON.stringify(assignments, null, 2));
+
+    // Validate assignments structure
+    if (!assignments || typeof assignments !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid assignments data"
+      });
     }
 
-    res.json({ 
-      success: true, 
-      message: 'Teacher assignments saved successfully' 
+    // Update subjects with assigned teachers (array format)
+    for (const [subjectCode, teacherAssignments] of Object.entries(assignments)) {
+      // teacherAssignments is an array of { teacherId, hours, isPriority }
+      if (!Array.isArray(teacherAssignments)) {
+        console.warn(`Skipping ${subjectCode}: not an array`);
+        continue;
+      }
+
+      const updateResult = await Subject.findOneAndUpdate(
+        { code: subjectCode },
+        {
+          assigned_teachers: teacherAssignments,
+          // Also update legacy field with first teacher for backward compatibility
+          assigned_teacher: teacherAssignments.length > 0 ? teacherAssignments[0].teacherId : null
+        },
+        { new: true }
+      );
+
+      if (updateResult) {
+        console.log(`Updated ${subjectCode} with ${teacherAssignments.length} teacher(s)`);
+      } else {
+        console.warn(`Subject ${subjectCode} not found in database`);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Teacher assignments saved successfully'
     });
   } catch (err) {
     console.error("Save assignments error:", err);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: "Error saving assignments.",
-      error: err.message 
+      error: err.message
     });
   }
 });
@@ -376,9 +400,15 @@ app.get("/get-timetable", async (req, res) => {
 app.post("/api/generate-timetable", async (req, res) => {
   try {
     const teachers = await Teacher.find({});
-    const subjects = await Subject.find({}).populate("assigned_teacher");
+    const subjects = await Subject.find({});
     const rooms = await Room.find({});
     const divisions = await Division.find({});
+
+    console.log("Generating timetable with data:");
+    console.log("Teachers:", teachers.length);
+    console.log("Subjects:", subjects.length);
+    console.log("Rooms:", rooms.length);
+    console.log("Divisions:", divisions.length);
 
     const timetableData = {
       teachers: teachers.map((t) => ({
@@ -391,17 +421,32 @@ app.post("/api/generate-timetable", async (req, res) => {
         shift: t.shift,
         preferred_shift: t.preferred_shift
       })),
-      subjects: subjects.map((s) => ({
-        id: s._id.toString(),
-        code: s.code,
-        name: s.name,
-        department: s.department,
-        semester: s.semester,
-        weekly_load: s.weekly_load,
-        total_hours: s.total_hours,
-        assigned_teacher: s.assigned_teacher ? s.assigned_teacher._id.toString() : null,
-        requires_lab: s.requires_lab
-      })),
+      subjects: subjects.map((s) => {
+        // Get assigned teachers - use the new assigned_teachers array
+        let assignedTeachers = [];
+
+        if (s.assigned_teachers && Array.isArray(s.assigned_teachers) && s.assigned_teachers.length > 0) {
+          // Use the new assigned_teachers array (with teacherId field)
+          assignedTeachers = s.assigned_teachers.map(a => a.teacherId);
+        } else if (s.assigned_teacher) {
+          // Fallback to old assigned_teacher field for backward compatibility
+          assignedTeachers = [s.assigned_teacher];
+        }
+
+        console.log(`Subject ${s.code} (${s.name}): assigned to ${assignedTeachers.length} teacher(s)`);
+
+        return {
+          id: s._id.toString(),
+          code: s.code,
+          name: s.name,
+          department: s.department,
+          semester: s.semester,
+          weekly_load: s.weekly_load,
+          total_hours: s.total_hours,
+          assignedTeachers: assignedTeachers, // Array of teacher IDs
+          requires_lab: s.requires_lab
+        };
+      }),
       rooms: rooms.map((r) => ({
         id: r._id.toString(),
         room_no: r.room_no,
@@ -410,8 +455,8 @@ app.post("/api/generate-timetable", async (req, res) => {
         room_type: r.room_type,
         equipment: r.equipment
       })),
-      divisions: divisions.map((d) => ({ 
-        id: d._id.toString(), 
+      divisions: divisions.map((d) => ({
+        id: d._id.toString(),
         name: d.name,
         semester: d.semester,
         strength: d.strength

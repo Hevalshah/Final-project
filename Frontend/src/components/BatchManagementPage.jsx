@@ -37,10 +37,19 @@ const BatchManagementPage = ({ onBack, onNext }) => {
         Object.keys(batchesData.data).forEach(batchKey => {
           initialAssignments[batchKey] = {};
           subjectsData.data.forEach(subject => {
+            const batch = batchesData.data[batchKey];
+            const subBatchRooms = {};
+            if (batch.subBatches) {
+              batch.subBatches.forEach(sb => {
+                subBatchRooms[sb.id] = null;
+              });
+            }
             initialAssignments[batchKey][subject.code] = {
               teacher: subject.assigned_teacher || null,
-              room: null,
-              batches: subject.requires_lab ? 'separate' : 'combined'
+              room: null, // For combined mode
+              batches: subject.requires_lab ? 'separate' : 'combined',
+              selectedSubBatches: batch.subBatches ? batch.subBatches.map(sb => sb.id) : [],
+              subBatchRooms: subBatchRooms // For separate mode: { "A1": "101", "A2": "102" }
             };
           });
         });
@@ -62,8 +71,8 @@ const BatchManagementPage = ({ onBack, onNext }) => {
     const batch = batches[batchKey];
 
     if (room && batch) {
-      const requiredCapacity = batchAssignments[batchKey][subjectCode].batches === 'combined' 
-        ? batch.strength 
+      const requiredCapacity = batchAssignments[batchKey][subjectCode].batches === 'combined'
+        ? batch.strength
         : Math.max(...batch.subBatches.map(b => b.students));
 
       if (room.capacity < requiredCapacity) {
@@ -72,7 +81,6 @@ const BatchManagementPage = ({ onBack, onNext }) => {
       }
 
       // Check room type compatibility
-      // Only show conflict if: lab subject assigned to non-lab room OR theory subject assigned to lab room
       if (subject.requires_lab && room.room_type !== 'Lab') {
         setConflicts(prev => [...prev.filter(c => !(c.batch === batchKey && c.subject === subjectCode)), {
           type: 'room_type_mismatch',
@@ -106,6 +114,57 @@ const BatchManagementPage = ({ onBack, onNext }) => {
     }));
   };
 
+  const assignRoomToSubBatch = (batchKey, subjectCode, subBatchId, roomNo) => {
+    const room = rooms.find(r => r.room_no === roomNo);
+    const subject = subjects.find(s => s.code === subjectCode);
+    const batch = batches[batchKey];
+    const subBatch = batch.subBatches.find(sb => sb.id === subBatchId);
+
+    if (room && subBatch) {
+      if (room.capacity < subBatch.students) {
+        alert(`Room ${roomNo} capacity (${room.capacity}) is insufficient for ${subBatch.name} (${subBatch.students} students)`);
+        return;
+      }
+
+      // Check room type compatibility
+      if (subject.requires_lab && room.room_type !== 'Lab') {
+        setConflicts(prev => [...prev.filter(c => !(c.batch === batchKey && c.subject === subjectCode && c.subBatch === subBatchId)), {
+          type: 'room_type_mismatch',
+          batch: batchKey,
+          subject: subjectCode,
+          subBatch: subBatchId,
+          room: roomNo,
+          message: `${subject.name} (${subBatch.name}) requires a lab room but ${roomNo} is a ${room.room_type}`
+        }]);
+      } else if (!subject.requires_lab && room.room_type === 'Lab') {
+        setConflicts(prev => [...prev.filter(c => !(c.batch === batchKey && c.subject === subjectCode && c.subBatch === subBatchId)), {
+          type: 'room_type_mismatch',
+          batch: batchKey,
+          subject: subjectCode,
+          subBatch: subBatchId,
+          room: roomNo,
+          message: `${subject.name} (${subBatch.name}) is a theory subject but ${roomNo} is a lab room`
+        }]);
+      } else {
+        setConflicts(prev => prev.filter(c => !(c.batch === batchKey && c.subject === subjectCode && c.subBatch === subBatchId)));
+      }
+    }
+
+    setBatchAssignments(prev => ({
+      ...prev,
+      [batchKey]: {
+        ...prev[batchKey],
+        [subjectCode]: {
+          ...prev[batchKey][subjectCode],
+          subBatchRooms: {
+            ...prev[batchKey][subjectCode].subBatchRooms,
+            [subBatchId]: roomNo
+          }
+        }
+      }
+    }));
+  };
+
   const setBatchMode = (batchKey, subjectCode, mode) => {
     setBatchAssignments(prev => ({
       ...prev,
@@ -113,45 +172,126 @@ const BatchManagementPage = ({ onBack, onNext }) => {
         ...prev[batchKey],
         [subjectCode]: {
           ...prev[batchKey][subjectCode],
-          batches: mode
+          batches: mode,
+          // Reset selectedSubBatches to all when switching modes
+          selectedSubBatches: mode === 'separate'
+            ? batches[batchKey].subBatches.map(sb => sb.id)
+            : []
         }
       }
     }));
   };
 
+  const toggleSubBatch = (batchKey, subjectCode, subBatchId) => {
+    setBatchAssignments(prev => {
+      const current = prev[batchKey][subjectCode].selectedSubBatches || [];
+      const updated = current.includes(subBatchId)
+        ? current.filter(id => id !== subBatchId)
+        : [...current, subBatchId];
+
+      return {
+        ...prev,
+        [batchKey]: {
+          ...prev[batchKey],
+          [subjectCode]: {
+            ...prev[batchKey][subjectCode],
+            selectedSubBatches: updated
+          }
+        }
+      };
+    });
+  };
+
   const autoAssignRooms = () => {
     setLoading(true);
-    
+
     setTimeout(() => {
       const newAssignments = { ...batchAssignments };
-      
+      const globalRoomUsageCount = {}; // Track global room usage across all batches
+
+      // Initialize global room usage tracking
+      rooms.forEach(room => {
+        globalRoomUsageCount[room.room_no] = 0;
+      });
+
       Object.keys(batches).forEach(batchKey => {
         const batch = batches[batchKey];
-        
+        const divisionRoomUsage = {}; // Track room usage PER DIVISION to ensure variety
+
+        // Initialize division-specific room usage tracking
+        rooms.forEach(room => {
+          divisionRoomUsage[room.room_no] = 0;
+        });
+
         subjects.forEach(subject => {
           const assignment = newAssignments[batchKey][subject.code];
-          if (!assignment.room) {
-            const requiredCapacity = assignment.batches === 'combined' 
-              ? batch.strength 
-              : Math.max(...batch.subBatches.map(b => b.students));
-            
-            const suitableRooms = rooms.filter(room => {
-              const isCapacitySufficient = room.capacity >= requiredCapacity;
-              // For lab subjects, match only Lab rooms. For theory subjects, match any non-Lab room
-              const isTypeMatch = subject.requires_lab
-                ? room.room_type === 'Lab'
-                : room.room_type !== 'Lab';
-              return isCapacitySufficient && isTypeMatch;
+
+          if (assignment.batches === 'separate') {
+            // Assign separate rooms for each sub-batch
+            assignment.selectedSubBatches?.forEach(subBatchId => {
+              if (!assignment.subBatchRooms[subBatchId]) {
+                const subBatch = batch.subBatches.find(sb => sb.id === subBatchId);
+
+                const suitableRooms = rooms.filter(room => {
+                  const isCapacitySufficient = room.capacity >= subBatch.students;
+                  const isTypeMatch = subject.requires_lab
+                    ? room.room_type === 'Lab'
+                    : room.room_type !== 'Lab';
+                  return isCapacitySufficient && isTypeMatch;
+                });
+
+                if (suitableRooms.length > 0) {
+                  // Sort by: 1) least used in THIS division, 2) least used globally, 3) smallest capacity
+                  const bestRoom = suitableRooms.sort((a, b) => {
+                    const divisionUsageDiff = divisionRoomUsage[a.room_no] - divisionRoomUsage[b.room_no];
+                    if (divisionUsageDiff !== 0) return divisionUsageDiff;
+
+                    const globalUsageDiff = globalRoomUsageCount[a.room_no] - globalRoomUsageCount[b.room_no];
+                    if (globalUsageDiff !== 0) return globalUsageDiff;
+
+                    return a.capacity - b.capacity;
+                  })[0];
+
+                  assignment.subBatchRooms[subBatchId] = bestRoom.room_no;
+                  divisionRoomUsage[bestRoom.room_no]++;
+                  globalRoomUsageCount[bestRoom.room_no]++;
+                }
+              }
             });
-            
-            if (suitableRooms.length > 0) {
-              const bestRoom = suitableRooms.sort((a, b) => a.capacity - b.capacity)[0];
-              assignment.room = bestRoom.room_no;
+          } else {
+            // Combined mode - assign one room for whole batch
+            if (!assignment.room) {
+              const requiredCapacity = batch.strength;
+
+              const suitableRooms = rooms.filter(room => {
+                const isCapacitySufficient = room.capacity >= requiredCapacity;
+                const isTypeMatch = subject.requires_lab
+                  ? room.room_type === 'Lab'
+                  : room.room_type !== 'Lab';
+                return isCapacitySufficient && isTypeMatch;
+              });
+
+              if (suitableRooms.length > 0) {
+                // Sort by: 1) least used in THIS division, 2) least used globally, 3) smallest capacity
+                const bestRoom = suitableRooms.sort((a, b) => {
+                  const divisionUsageDiff = divisionRoomUsage[a.room_no] - divisionRoomUsage[b.room_no];
+                  if (divisionUsageDiff !== 0) return divisionUsageDiff;
+
+                  const globalUsageDiff = globalRoomUsageCount[a.room_no] - globalRoomUsageCount[b.room_no];
+                  if (globalUsageDiff !== 0) return globalUsageDiff;
+
+                  return a.capacity - b.capacity;
+                })[0];
+
+                assignment.room = bestRoom.room_no;
+                divisionRoomUsage[bestRoom.room_no]++;
+                globalRoomUsageCount[bestRoom.room_no]++;
+              }
             }
           }
         });
       });
-      
+
       setBatchAssignments(newAssignments);
       setLoading(false);
     }, 2000);
@@ -185,11 +325,20 @@ const BatchManagementPage = ({ onBack, onNext }) => {
     const resetAssignments = {};
     Object.keys(batches).forEach(batchKey => {
       resetAssignments[batchKey] = {};
+      const batch = batches[batchKey];
       subjects.forEach(subject => {
+        const subBatchRooms = {};
+        if (batch.subBatches) {
+          batch.subBatches.forEach(sb => {
+            subBatchRooms[sb.id] = null;
+          });
+        }
         resetAssignments[batchKey][subject.code] = {
           teacher: subject.assigned_teacher || null,
           room: null,
-          batches: subject.requires_lab ? 'separate' : 'combined'
+          batches: subject.requires_lab ? 'separate' : 'combined',
+          selectedSubBatches: batch.subBatches ? batch.subBatches.map(sb => sb.id) : [],
+          subBatchRooms: subBatchRooms
         };
       });
     });
@@ -200,17 +349,31 @@ const BatchManagementPage = ({ onBack, onNext }) => {
   const getAssignmentProgress = () => {
     let total = 0;
     let completed = 0;
-    
+
     Object.keys(batches).forEach(batchKey => {
       subjects.forEach(subject => {
         total++;
         const assignment = batchAssignments[batchKey]?.[subject.code];
-        if (assignment?.teacher && assignment?.room) {
-          completed++;
+
+        if (assignment?.teacher) {
+          if (assignment.batches === 'separate') {
+            // Check if all selected sub-batches have rooms assigned
+            const allSubBatchesAssigned = assignment.selectedSubBatches?.every(
+              subBatchId => assignment.subBatchRooms?.[subBatchId]
+            );
+            if (allSubBatchesAssigned && assignment.selectedSubBatches?.length > 0) {
+              completed++;
+            }
+          } else {
+            // Combined mode - just check if room is assigned
+            if (assignment.room) {
+              completed++;
+            }
+          }
         }
       });
     });
-    
+
     return { completed, total, percentage: total > 0 ? Math.round((completed / total) * 100) : 0 };
   };
 
@@ -418,62 +581,167 @@ const BatchManagementPage = ({ onBack, onNext }) => {
                                   <option value="combined">Combined</option>
                                   <option value="separate">Separate Batches</option>
                                 </select>
+                                {assignment?.batches === 'separate' && (
+                                  <div className="mt-2 space-y-1">
+                                    <div className="text-xs font-medium text-gray-600 mb-1">Select Batches:</div>
+                                    {batches[selectedBatch].subBatches.map(subBatch => {
+                                      const isSelected = assignment.selectedSubBatches?.includes(subBatch.id);
+                                      return (
+                                        <label key={subBatch.id} className="flex items-center space-x-2 cursor-pointer hover:bg-blue-50 p-1.5 rounded transition-colors">
+                                          <input
+                                            type="checkbox"
+                                            checked={isSelected}
+                                            onChange={() => toggleSubBatch(selectedBatch, subject.code, subBatch.id)}
+                                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                          />
+                                          <span className="text-xs font-medium text-gray-700">
+                                            {subBatch.name} ({subBatch.students} students)
+                                          </span>
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                )}
                               </td>
                               <td className="px-4 py-4">
-                                <select
-                                  value={assignment?.room || ''}
-                                  onChange={(e) => assignRoomToBatch(selectedBatch, subject.code, e.target.value)}
-                                  className={`w-full px-3 py-2 border-2 rounded-lg focus:outline-none focus:ring-2 text-sm font-medium ${
-                                    hasConflict ? 'border-red-300 bg-red-50' : 'border-gray-300 focus:ring-blue-500'
-                                  }`}
-                                >
-                                  <option value="">Select Room</option>
-                                  {(() => {
-                                    const batch = batches[selectedBatch];
-                                    const requiredCapacity = assignment?.batches === 'combined'
-                                      ? batch.strength
-                                      : Math.max(...batch.subBatches.map(b => b.students));
+                                {assignment?.batches === 'separate' ? (
+                                  <div className="space-y-2">
+                                    {assignment.selectedSubBatches?.map(subBatchId => {
+                                      const subBatch = batches[selectedBatch].subBatches.find(sb => sb.id === subBatchId);
+                                      const subBatchRoom = assignment.subBatchRooms?.[subBatchId];
+                                      const assignedSubBatchRoom = subBatchRoom ? rooms.find(r => r.room_no === subBatchRoom) : null;
 
-                                    return rooms
-                                      .filter(room => {
-                                        // For lab subjects, match only Lab rooms. For theory subjects, match any non-Lab room
-                                        const isTypeMatch = subject.requires_lab
-                                          ? room.room_type === 'Lab'
-                                          : room.room_type !== 'Lab';
-                                        const hasCapacity = room.capacity >= requiredCapacity;
-                                        return isTypeMatch && hasCapacity;
-                                      })
-                                      .map(room => (
-                                        <option key={room.room_no} value={room.room_no}>
-                                          {room.room_no} ({room.capacity} capacity) {room.capacity >= requiredCapacity ? '✓' : ''}
-                                        </option>
-                                      ));
-                                  })()}
-                                </select>
-                                {assignedRoom && (
-                                  <div className="text-xs text-gray-500 mt-1 flex items-center">
-                                    <MapPin className="w-3 h-3 mr-1" />
-                                    {assignedRoom.room_type} • {assignedRoom.equipment}
+                                      return (
+                                        <div key={subBatchId} className="border border-gray-200 rounded-lg p-2 bg-gray-50">
+                                          <div className="text-xs font-semibold text-gray-700 mb-1">{subBatch.name}:</div>
+                                          <select
+                                            value={subBatchRoom || ''}
+                                            onChange={(e) => assignRoomToSubBatch(selectedBatch, subject.code, subBatchId, e.target.value)}
+                                            className="w-full px-2 py-1.5 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs font-medium"
+                                          >
+                                            <option value="">Select Room</option>
+                                            {rooms
+                                              .filter(room => {
+                                                const isTypeMatch = subject.requires_lab
+                                                  ? room.room_type === 'Lab'
+                                                  : room.room_type !== 'Lab';
+                                                const hasCapacity = room.capacity >= subBatch.students;
+                                                return isTypeMatch && hasCapacity;
+                                              })
+                                              .map(room => (
+                                                <option key={room.room_no} value={room.room_no}>
+                                                  {room.room_no} ({room.capacity} capacity)
+                                                </option>
+                                              ))}
+                                          </select>
+                                          {assignedSubBatchRoom && (
+                                            <div className="text-xs text-gray-500 mt-1 flex items-center">
+                                              <MapPin className="w-3 h-3 mr-1" />
+                                              {assignedSubBatchRoom.room_type}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
                                   </div>
+                                ) : (
+                                  <>
+                                    <select
+                                      value={assignment?.room || ''}
+                                      onChange={(e) => assignRoomToBatch(selectedBatch, subject.code, e.target.value)}
+                                      className={`w-full px-3 py-2 border-2 rounded-lg focus:outline-none focus:ring-2 text-sm font-medium ${
+                                        hasConflict ? 'border-red-300 bg-red-50' : 'border-gray-300 focus:ring-blue-500'
+                                      }`}
+                                    >
+                                      <option value="">Select Room</option>
+                                      {(() => {
+                                        const batch = batches[selectedBatch];
+                                        const requiredCapacity = batch.strength;
+
+                                        return rooms
+                                          .filter(room => {
+                                            const isTypeMatch = subject.requires_lab
+                                              ? room.room_type === 'Lab'
+                                              : room.room_type !== 'Lab';
+                                            const hasCapacity = room.capacity >= requiredCapacity;
+                                            return isTypeMatch && hasCapacity;
+                                          })
+                                          .map(room => (
+                                            <option key={room.room_no} value={room.room_no}>
+                                              {room.room_no} ({room.capacity} capacity)
+                                            </option>
+                                          ));
+                                      })()}
+                                    </select>
+                                    {assignedRoom && (
+                                      <div className="text-xs text-gray-500 mt-1 flex items-center">
+                                        <MapPin className="w-3 h-3 mr-1" />
+                                        {assignedRoom.room_type} • {assignedRoom.equipment}
+                                      </div>
+                                    )}
+                                  </>
                                 )}
                               </td>
                               <td className="px-4 py-4 text-center">
-                                {hasConflict ? (
-                                  <div className="inline-flex items-center space-x-1 bg-red-100 text-red-700 px-3 py-1.5 rounded-full">
-                                    <AlertCircle className="w-4 h-4" />
-                                    <span className="text-xs font-semibold">Conflict</span>
-                                  </div>
-                                ) : assignment?.room ? (
-                                  <div className="inline-flex items-center space-x-1 bg-green-100 text-green-700 px-3 py-1.5 rounded-full">
-                                    <CheckCircle className="w-4 h-4" />
-                                    <span className="text-xs font-semibold">Assigned</span>
-                                  </div>
-                                ) : (
-                                  <div className="inline-flex items-center space-x-1 bg-gray-100 text-gray-500 px-3 py-1.5 rounded-full">
-                                    <Users className="w-4 h-4" />
-                                    <span className="text-xs font-semibold">Pending</span>
-                                  </div>
-                                )}
+                                {(() => {
+                                  if (hasConflict) {
+                                    return (
+                                      <div className="inline-flex items-center space-x-1 bg-red-100 text-red-700 px-3 py-1.5 rounded-full">
+                                        <AlertCircle className="w-4 h-4" />
+                                        <span className="text-xs font-semibold">Conflict</span>
+                                      </div>
+                                    );
+                                  }
+
+                                  if (assignment?.batches === 'separate') {
+                                    const allAssigned = assignment.selectedSubBatches?.every(
+                                      subBatchId => assignment.subBatchRooms?.[subBatchId]
+                                    );
+                                    const someAssigned = assignment.selectedSubBatches?.some(
+                                      subBatchId => assignment.subBatchRooms?.[subBatchId]
+                                    );
+
+                                    if (allAssigned && assignment.selectedSubBatches?.length > 0) {
+                                      return (
+                                        <div className="inline-flex items-center space-x-1 bg-green-100 text-green-700 px-3 py-1.5 rounded-full">
+                                          <CheckCircle className="w-4 h-4" />
+                                          <span className="text-xs font-semibold">All Assigned</span>
+                                        </div>
+                                      );
+                                    } else if (someAssigned) {
+                                      return (
+                                        <div className="inline-flex items-center space-x-1 bg-yellow-100 text-yellow-700 px-3 py-1.5 rounded-full">
+                                          <AlertCircle className="w-4 h-4" />
+                                          <span className="text-xs font-semibold">Partial</span>
+                                        </div>
+                                      );
+                                    } else {
+                                      return (
+                                        <div className="inline-flex items-center space-x-1 bg-gray-100 text-gray-500 px-3 py-1.5 rounded-full">
+                                          <Users className="w-4 h-4" />
+                                          <span className="text-xs font-semibold">Pending</span>
+                                        </div>
+                                      );
+                                    }
+                                  } else {
+                                    // Combined mode
+                                    if (assignment?.room) {
+                                      return (
+                                        <div className="inline-flex items-center space-x-1 bg-green-100 text-green-700 px-3 py-1.5 rounded-full">
+                                          <CheckCircle className="w-4 h-4" />
+                                          <span className="text-xs font-semibold">Assigned</span>
+                                        </div>
+                                      );
+                                    } else {
+                                      return (
+                                        <div className="inline-flex items-center space-x-1 bg-gray-100 text-gray-500 px-3 py-1.5 rounded-full">
+                                          <Users className="w-4 h-4" />
+                                          <span className="text-xs font-semibold">Pending</span>
+                                        </div>
+                                      );
+                                    }
+                                  }
+                                })()}
                               </td>
                             </tr>
                           );
