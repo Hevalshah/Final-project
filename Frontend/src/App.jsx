@@ -48,11 +48,6 @@ function App() {
     try {
       // In a real implementation, this would call the backend
       // For now, we'll simulate the process
-      console.log("Generating timetable with data:", {
-        files: appState.uploadedFiles,
-        teachers: appState.teacherAssignments,
-        batches: batchAssignments,
-      });
 
       // Simulate processing time
       setTimeout(() => {

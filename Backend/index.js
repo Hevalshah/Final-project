@@ -42,8 +42,6 @@ app.get("/", (req, res) => {
 // FIXED: Updated to handle multiple file upload fields properly
 app.post("/upload", upload.any(), async (req, res) => {
   try {
-    console.log("Files received:", req.files);
-    
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ 
         success: false, 
@@ -69,11 +67,6 @@ app.post("/upload", upload.any(), async (req, res) => {
       teachersWorkbook.Sheets[teachersWorkbook.SheetNames[0]]
     );
 
-    // Debug: Show what columns are in the file
-    if (teachersSheet.length > 0) {
-      console.log("Teachers file columns found:", Object.keys(teachersSheet[0]));
-    }
-
     const teachersData = teachersSheet.map((row) => ({
       mis_id: row.mis_id || row.MIS_ID || row['MIS ID'] || row['MIS_ID'] || row['Teacher ID'] || row.teacher_id,
       name: row.name || row.Name || row.NAME || row['Teacher Name'] || row.teacher_name,
@@ -86,9 +79,6 @@ app.post("/upload", upload.any(), async (req, res) => {
       preferred_shift: row.preferred_shift || row.Preferred_Shift || row['Preferred Shift'] || 'General'
     }));
 
-    console.log("Parsed teachers:", teachersData.length);
-    console.log("Sample teacher data:", teachersData[0]);
-
     await Teacher.deleteMany();
     await Teacher.insertMany(teachersData);
 
@@ -97,11 +87,6 @@ app.post("/upload", upload.any(), async (req, res) => {
     const subjectsSheet = xlsx.utils.sheet_to_json(
       subjectsWorkbook.Sheets[subjectsWorkbook.SheetNames[0]]
     );
-
-    // Debug: Show what columns are in the file
-    if (subjectsSheet.length > 0) {
-      console.log("Subjects file columns found:", Object.keys(subjectsSheet[0]));
-    }
 
     const subjectsData = subjectsSheet.map((row) => {
       // Helper function to properly parse boolean values
@@ -125,9 +110,6 @@ app.post("/upload", upload.any(), async (req, res) => {
       };
     });
 
-    console.log("Parsed subjects:", subjectsData.length);
-    console.log("Sample subject data:", subjectsData[0]);
-
     await Subject.deleteMany();
     await Subject.insertMany(subjectsData);
 
@@ -137,11 +119,6 @@ app.post("/upload", upload.any(), async (req, res) => {
       roomsWorkbook.Sheets[roomsWorkbook.SheetNames[0]]
     );
 
-    // Debug: Show what columns are in the file
-    if (roomsSheet.length > 0) {
-      console.log("Rooms file columns found:", Object.keys(roomsSheet[0]));
-    }
-
     const roomsData = roomsSheet.map((row) => ({
       room_id: row.room_id || row.Room_ID || row['Room ID'] || row.room_no || row.Room_No || row['Room No'],
       room_no: row.room_no || row.Room_No || row['Room No'] || row.room_id || row.Room_ID || row['Room ID'],
@@ -150,9 +127,6 @@ app.post("/upload", upload.any(), async (req, res) => {
       room_type: row.room_type || row.Room_Type || row['Room Type'] || row.Type || row.type || 'Classroom',
       equipment: row.equipment || row.Equipment || row.EQUIPMENT || row.Facilities || row.facilities || 'Projector'
     }));
-
-    console.log("Parsed rooms:", roomsData.length);
-    console.log("Sample room data:", roomsData[0]);
 
     await Room.deleteMany();
     await Room.insertMany(roomsData);
@@ -202,7 +176,6 @@ app.post("/upload", upload.any(), async (req, res) => {
 app.get("/api/teachers", async (req, res) => {
   try {
     const teachers = await Teacher.find({}).lean();
-    console.log("Fetched teachers:", teachers.length);
     res.json({ success: true, data: teachers });
   } catch (err) {
     console.error("Error fetching teachers:", err);
@@ -213,7 +186,6 @@ app.get("/api/teachers", async (req, res) => {
 app.get("/api/subjects", async (req, res) => {
   try {
     const subjects = await Subject.find({}).lean();
-    console.log("Fetched subjects:", subjects.length);
     res.json({ success: true, data: subjects });
   } catch (err) {
     console.error("Error fetching subjects:", err);
@@ -225,7 +197,6 @@ app.get("/api/subjects", async (req, res) => {
 app.post("/api/save-assignments", async (req, res) => {
   try {
     const { assignments, workloadSummary } = req.body;
-    console.log("Saving assignments:", JSON.stringify(assignments, null, 2));
 
     // Validate assignments structure
     if (!assignments || typeof assignments !== 'object') {
@@ -239,11 +210,10 @@ app.post("/api/save-assignments", async (req, res) => {
     for (const [subjectCode, teacherAssignments] of Object.entries(assignments)) {
       // teacherAssignments is an array of { teacherId, hours, isPriority }
       if (!Array.isArray(teacherAssignments)) {
-        console.warn(`Skipping ${subjectCode}: not an array`);
         continue;
       }
 
-      const updateResult = await Subject.findOneAndUpdate(
+      await Subject.findOneAndUpdate(
         { code: subjectCode },
         {
           assigned_teachers: teacherAssignments,
@@ -252,12 +222,6 @@ app.post("/api/save-assignments", async (req, res) => {
         },
         { new: true }
       );
-
-      if (updateResult) {
-        console.log(`Updated ${subjectCode} with ${teacherAssignments.length} teacher(s)`);
-      } else {
-        console.warn(`Subject ${subjectCode} not found in database`);
-      }
     }
 
     res.json({
@@ -279,8 +243,7 @@ app.post("/api/save-assignments", async (req, res) => {
 app.get("/api/batches", async (req, res) => {
   try {
     const divisions = await Division.find({}).lean();
-    console.log("Fetched divisions:", divisions.length);
-    
+
     const batches = {};
     
     divisions.forEach(div => {
@@ -316,7 +279,6 @@ app.get("/api/batches", async (req, res) => {
 app.get("/api/rooms", async (req, res) => {
   try {
     const rooms = await Room.find({}).lean();
-    console.log("Fetched rooms:", rooms.length);
     res.json({ success: true, data: rooms });
   } catch (err) {
     console.error("Error fetching rooms:", err);
@@ -327,8 +289,7 @@ app.get("/api/rooms", async (req, res) => {
 app.post("/api/batch-assignments", async (req, res) => {
   try {
     const { batchAssignments } = req.body;
-    console.log("Saving batch assignments:", Object.keys(batchAssignments).length);
-    
+
     // You can save this to a BatchAssignment collection if needed
     // For now, just acknowledge the save
     
@@ -404,12 +365,6 @@ app.post("/api/generate-timetable", async (req, res) => {
     const rooms = await Room.find({});
     const divisions = await Division.find({});
 
-    console.log("Generating timetable with data:");
-    console.log("Teachers:", teachers.length);
-    console.log("Subjects:", subjects.length);
-    console.log("Rooms:", rooms.length);
-    console.log("Divisions:", divisions.length);
-
     const timetableData = {
       teachers: teachers.map((t) => ({
         id: t._id.toString(),
@@ -432,8 +387,6 @@ app.post("/api/generate-timetable", async (req, res) => {
           // Fallback to old assigned_teacher field for backward compatibility
           assignedTeachers = [s.assigned_teacher];
         }
-
-        console.log(`Subject ${s.code} (${s.name}): assigned to ${assignedTeachers.length} teacher(s)`);
 
         return {
           id: s._id.toString(),
@@ -463,15 +416,12 @@ app.post("/api/generate-timetable", async (req, res) => {
       })),
     };
 
-    console.log("Sending to FastAPI:", JSON.stringify(timetableData, null, 2));
-    
     const response = await axios.post(
       "http://127.0.0.1:8000/generate-timetable",
       timetableData
     );
     const timetables = response.data;
 
-    console.log("FastAPI Response:", timetables);
     res.json({ success: true, data: timetables });
   } catch (error) {
     console.error("Error generating timetable:", error.message);

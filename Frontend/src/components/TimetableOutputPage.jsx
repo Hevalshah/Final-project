@@ -36,16 +36,12 @@ const TimetableOutputPage = ({ onBack }) => {
 
         console.log('Response status:', response.status);
         const result = await response.json();
-        console.log('API Response:', result);
 
         if (result.success && result.data) {
-          console.log('Timetable data received:', result.data);
-
           // Check if we actually have data
           if (Array.isArray(result.data) && result.data.length > 0) {
             // Transform backend data to frontend format
             const transformedData = transformBackendData(result.data);
-            console.log('Transformed data:', transformedData);
             setTimetableData(transformedData);
 
             // Set first class as selected if available

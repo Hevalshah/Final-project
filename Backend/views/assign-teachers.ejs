@@ -134,8 +134,6 @@
                 if (input.checked) assignments[subjectId].push(input.value);
             });
 
-            console.log('Submitting assignments:', assignments);
-
             // Validate assignments
             for (const subjectId in assignments) {
                 if (assignments[subjectId].length < 5) {

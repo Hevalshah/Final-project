@@ -58,10 +58,7 @@ const TeacherAssignmentPage = ({ onBack, onNext }) => {
         
         const teachersData = await teachersRes.json();
         const subjectsData = await subjectsRes.json();
-        
-        console.log('Teachers response:', teachersData);
-        console.log('Subjects response:', subjectsData);
-        
+
         if (teachersData.success && teachersData.data) {
           setTeachers(teachersData.data);
           
